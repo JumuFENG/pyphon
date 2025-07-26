@@ -1,5 +1,16 @@
 import requests
 import math
+from datetime import datetime
+
+def delay_seconds(daytime:str)->float:
+    '''计算当前时间到daytime的时间间隔'''
+    dnow = datetime.now()
+    dtarr = daytime.split(':')
+    hr = int(dtarr[0])
+    minutes = 0 if len(dtarr) < 2 else int(dtarr[1])
+    secs = 0 if len(dtarr) < 3 else int(dtarr[2])
+    target_time = dnow.replace(hour=hr, minute=minutes, second=secs)
+    return (target_time - dnow).total_seconds()
 
 def join_url(srv, path):
     if srv.endswith('/') and path.startswith('/'):
@@ -11,36 +22,34 @@ def join_url(srv, path):
 def get_stock_snapshot(code):
     url = f'https://hsmarketwg.eastmoney.com/api/SHSZQuoteSnapshot?id={code}&callback=?'
     response = requests.get(url)
+    response.raise_for_status()
     snapshot = response.json()
 
-    name = snapshot.get('name')
-    topprice = safe_float(snapshot.get('topprice'))
-    bottomprice = safe_float(snapshot.get('bottomprice'))
     realtimequote = snapshot.get('realtimequote', {})
     fivequote = snapshot.get('fivequote', {})
-
-    latestPrice = safe_float(realtimequote.get('currentPrice'))
-    date = realtimequote.get('date')
-    zdf = realtimequote.get('zdf')
-    openPrice = safe_float(fivequote.get('openPrice'))
-    lastClose = safe_float(fivequote.get('yesClosePrice'))
-
-    # 提取买卖盘
     buysells = {k: v for k, v in fivequote.items() if k.startswith('buy') or k.startswith('sale')}
 
+    zdf = realtimequote.get('zdf')
     change = float(zdf.replace('%', '')) / 100 if zdf else None
+
+    date = realtimequote.get('date')
+    date = f'{date[:4]}-{date[4:6]}-{date[6:8]}'
 
     return {
         'code': code,
-        'name': name,
-        'price': latestPrice,
-        'open': openPrice,
-        'lclose': lastClose,
+        'name': snapshot.get('name'),
+        'price': safe_float(realtimequote.get('currentPrice')),
+        'open': safe_float(realtimequote.get('open')),
+        'high': safe_float(realtimequote.get('high')),
+        'low': safe_float(realtimequote.get('low')),
+        'lclose': safe_float(fivequote.get('yesClosePrice')),
         'buysells': buysells,
         'change': change,
-        'change_px': (latestPrice - lastClose) if latestPrice and lastClose else None,
-        'top_price': topprice,
-        'bottom_price': bottomprice
+        'change_px': safe_float(realtimequote.get('zd')),
+        'top_price': safe_float(snapshot.get('topprice')),
+        'bottom_price': safe_float(snapshot.get('bottomprice')),
+        'date': date,
+        'time': realtimequote.get('time')
     }
 
 def safe_float(v):
@@ -62,7 +71,7 @@ def get_rt_price(code):
             bid5 = max(price * 0.97, bottom_price)
         return {'top_price': top_price, 'bottom_price': bottom_price, 'price': price, 'ask5': ask5, 'bid5': bid5}
     except Exception as e:
-        logger.error('get_rt_price error %s', e)
+        raise e
 
 def get_mkt_code(code):
     assert len(code) == 6, "stock code length should be 6"

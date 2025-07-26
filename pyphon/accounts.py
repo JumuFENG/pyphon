@@ -1,13 +1,13 @@
 import logging
 import json
 import requests
-from datetime import datetime
-from misc import get_rt_price, join_url, get_mkt_code, calc_buy_count
+from datetime import datetime, timedelta
+from misc import get_rt_price, join_url, get_mkt_code, calc_buy_count, delay_seconds
 
 
 logger = logging.getLogger('emtrader')
 
-class Account:
+class Account():
     def __init__(self):
         self.keyword = None
         self.stocks = []
@@ -36,10 +36,35 @@ class Account:
     @property
     def wgdomain(self):
         return accld.jywg.jywg if accld.jywg else None
-    
+
     @property
     def valkey(self):
         return accld.jywg.validate_key if accld.jywg else None
+
+    @staticmethod
+    def extend_buydetail(buydetail, exdetail):
+        if not isinstance(buydetail, list):
+            return
+        if not isinstance(exdetail, list):
+            return
+        for bd in exdetail:
+            exbd = next((x for x in buydetail if x['sid'] == bd['sid'] and x['date'] == bd['date'] and x['type'] == bd['type']), None)
+            if exbd:
+                continue
+            buydetail.append(bd)
+
+    def extend_stock_buydetail(self, code, exdetail):
+        stock = self.get_stock(code)
+        if not stock:
+            self.add_watch_stock(code, {'buydetail': exdetail, 'buydetail_full': exdetail})
+            return
+
+        if 'buydetail' not in stock:
+            stock['buydetail'] = []
+        self.extend_buydetail(stock['buydetail'], exdetail)
+        if 'buydetail_full' not in stock:
+            stock['buydetail_full'] = []
+        self.extend_buydetail(stock['buydetail_full'], exdetail)
 
     def load_watchings(self):
         wurl = join_url(accld.fha['server'], 'stock?act=watchings&acc=' + self.keyword)
@@ -80,21 +105,10 @@ class Account:
             if stock['strategies']['amount'] != strgrp['amount']:
                 stock['strategies']['amount'] = strgrp['amount']
 
-            def extend_buydetail(buydetail, exdetail):
-                if not isinstance(buydetail, list):
-                    return
-                if not isinstance(exdetail, list):
-                    return
-                for bd in exdetail:
-                    exbd = next((x for x in buydetail if x['sid'] == bd['sid'] and x['date'] == bd['date'] and x['type'] == bd['type']), None)
-                    if exbd:
-                        continue
-                    buydetail.append(bd)
-
             if 'buydetail' in strgrp:
-                extend_buydetail(stock['buydetail'], strgrp['buydetail'])
+                self.extend_buydetail(stock['buydetail'], strgrp['buydetail'])
             if 'buydetail_full' in strgrp:
-                extend_buydetail(stock['buydetail_full'], strgrp['buydetail_full'])
+                self.extend_buydetail(stock['buydetail_full'], strgrp['buydetail_full'])
             return
 
         self.stocks.append({
@@ -103,24 +117,319 @@ class Account:
             'buydetail_full': strgrp.get('buydetail_full', [])
         })
 
-    def check_orders(self):
-        # 查询当日订单
+    @property
+    def order_url(self):
         pass
+
+    def fetch_batches_deal_data(self, url, data):
+        has_more_data = True
+        orders = []
+
+        try:
+            while has_more_data:
+                r = self.jysession.post(url, data=data)
+                r.raise_for_status()
+                deals = r.json()
+                if deals['Status'] != 0:
+                    logger.error('查询订单失败: %s', deals['Message'])
+                    break
+                if not deals['Data'] or len(deals['Data']) == 0:
+                    logger.info('no orders found')
+                    break
+                orders.extend(deals['Data'])
+                if 'Dwc' in deals['Data'][-1]:
+                    data['dwc'] = deals['Data'][-1]['Dwc']
+                if not deals['Data'][-1]['Dwc'] or len(deals['Data']) < int(data['qqhs']):
+                    has_more_data = False
+        except Exception as e:
+            logger.error('查询订单失败: %s', str(e))
+        finally:
+            return orders
+
+    def get_orders(self):
+        # 查询当日订单
+        url = self.order_url
+        data = {
+            'qqhs': '20',
+            'dwc': ''
+        }
+        return self.fetch_batches_deal_data(url, data)
+
+    def tradeType_from_Mmsm(self, Mmsm):
+        ignored = ['融券', ]
+        if Mmsm in ignored:
+            return
+
+        sells = ['证券卖出', '担保品划出']
+        if Mmsm in sells:
+            return 'S'
+
+        buys = ['证券买入', '担保品划入', '配售申购', '配股缴款', '网上认购']
+        if Mmsm in buys:
+            return 'B'
+
+    def check_orders(self):
+        data = self.get_orders()
+        date = datetime.now().strftime('%Y-%m-%d')
+        sdeals = {}
+        for d in data:
+            code = d.get('Zqdm', None)
+            mmsm = d.get('Mmsm', None)
+            status = d.get('Wtzt', None)
+            bstype = self.tradeType_from_Mmsm(mmsm)
+            if (status in ['已成', '已撤', '废单', '部撤'] or (status in ['部成'] and delay_seconds('15:00') < 0)) and bstype:
+                if code not in sdeals:
+                    sdeals[code] = []
+                sdeals[code].append({
+                    'code': code,
+                    'price': d.get('Cjjg', 0),
+                    'count': d.get('Cjsl', 0),
+                    'sid': d.get('Wtbh', None),
+                    'type': bstype,
+                    'date': date
+                })
+                record = next((x for x in self.trading_records if x['code'] == code and x['type'] == bstype and x['sid'] == d.get('Wtbh', None)), None)
+                if record:
+                    self.trading_records.remove(record)
+            elif status in ['已报'] and mmsm in ['配售申购']:
+                logger.info('%s ignore deal %s %s', self.keyword, mmsm, d.get('Zqmc', ''))
+                continue
+            elif status in ['已报', '部成'] and bstype:
+                logger.info('%s imcomplete deal %s %s %s', self.keyword, d.get('Zqmc', ''), status, mmsm)
+                continue
+            elif status in ['已确认'] and mmsm in ['担保品划入', '担保品划出']:
+                accld.create_deals_for_transfer(d)
+                continue
+            else:
+                logger.info('%s unknown deal type/status: %s', self.keyword, d)
+
+        for code, deals in sdeals.items():
+            self.extend_stock_buydetail(code, deals)
+
+        return sdeals
+
+    def archive_deals(self, deals):
+        if not deals:
+            return
+
+        for c in deals:
+            stk = self.get_stock(c)
+            if stk:
+                buydetail = stk.get('buydetail', [])
+                buyrecs = sorted([c for c in buydetail if c['type'] == 'B'], key=lambda x: x['price'])
+                sellrecs = [c for c in buydetail if c['type'] == 'S']
+                scount = 0  # 初始化scount
+                for rec in sellrecs:
+                    cnt_matched = next((b for b in buyrecs if b['count'] == rec['count']), None)
+                    if cnt_matched:
+                        buyrecs.remove(cnt_matched)
+                        continue
+                    scount = rec['count']
+                    for brec in buyrecs:
+                        if brec['count'] > scount:
+                            brec['count'] -= scount
+                            scount = 0
+                            break
+                        scount -= brec['count']
+                        brec['count'] = 0
+                if scount > 0:
+                    logger.error('sell count not archived %s %s', c, buydetail)
+                    continue
+                stk['buydetail'] = [b for b in buyrecs if b['count'] > 0]
+                stk['holdCount'] += sum([b['count'] for b in stk['buydetail']])
+                stk['availableCount'] += sum([b['count'] for b in stk['buydetail']])
 
     def load_deals(self):
         # 查询当日订单，并将当日成交记录上传
+        deals = self.check_orders()
+        self.archive_deals(deals)
+
+        updeals = []
+        for c,d in deals.items():
+            updeals.extend(d)
+        self._upload_deals(updeals)
+
+    def _upload_deals(self, deals, max_retry=3):
+        if len(deals) == 0 or not accld.fha:
+            return
+
+        deals = [{**{k:v for k,v in d.items()}, 'code': get_mkt_code(d['code']) + d['code'] }  for d in deals]
+
+        url = join_url(accld.fha['server'], 'stock')
+        data = {
+            'act': 'deals',
+            'acc': self.keyword,
+            'data': json.dumps(deals)
+        }
+        logger.info('%s uploadDeals %s', self.keyword, deals)
+        retry = 0
+        while retry < max_retry:
+            try:
+                r = requests.post(url, headers=accld.fha['headers'], data=data)
+                r.raise_for_status()
+                if r.status_code == 200:
+                    logger.info('%s uploadDeals success', self.keyword)
+                    return
+                else:
+                    logger.error('%s uploadDeals failed: %s', self.keyword, r.text)
+            except Exception as e:
+                logger.error('%s uploadDeals error (try %d): %s', self.keyword, retry + 1, e)
+            retry += 1
+        logger.error('%s uploadDeals failed after %d retries', self.keyword, max_retry)
+
+    @property
+    def datestr_fmt(self):
+        return '%Y-%m-%d'
+
+    @property
+    def hisdeals_url(self):
         pass
 
-    def _upload_deals(self, deals):
+    @property
+    def hissxl_url(self):
+        # 交割单查询 Stock Exchange List
         pass
+
+    def get_history_deals(self, url, date):
+        # 查询date至今所有订单
+        datesections = []
+        if isinstance(date, str):
+            date = datetime.strptime(date, '%Y-%m-%d')
+        now = datetime.now()
+        while True:
+            edate = date + timedelta(days=89)
+            datesections.append((date.strftime(self.datestr_fmt), min(edate, now).strftime(self.datestr_fmt)))
+            if edate > now:
+                break
+            date = edate + timedelta(days=1)
+
+        deals = []
+        for st, et in datesections:
+            data = {
+                'st': st,
+                'et': et,
+                'qqhs': '20',
+                'dwc': ''
+            }
+
+            deals.extend(self.fetch_batches_deal_data(url, data))
+
+        return deals
+
+    @staticmethod
+    def get_deal_time(rq, sj):
+        d = f'{rq[0:4]}-{rq[4:6]}-{rq[6:8]}'
+        if len(sj) == 8:
+            sj = sj[:6]
+        if len(sj) != 6:
+            return f'{d} 00:00'
+        return f'{d} {sj[0:2]}:{sj[2:4]}:{sj[4:6]}'
+
 
     def load_his_deals(self, date):
         # 查询date至今所有历史订单(买卖订单)
-        pass
+        hdeals = self.get_history_deals(self.hisdeals_url, date)
+        fetchedDeals = []
+        for deali in hdeals:
+            tradeType = self.tradeType_from_Mmsm(deali['Mmsm'])
+            if not tradeType:
+                logger.info('unknown trade type', deali['Mmsm'], deali)
+                continue
+
+            code = deali['Zqdm']
+            if not code:
+                continue
+
+            dltime = self.get_deal_time(deali['Cjrq'], deali['Cjsj'])
+            count = deali.get('Cjsl', 0)
+            if count == 0:
+                logger.info('invalid count %s', deali)
+                continue
+
+            fetchedDeals.append({
+                'time': dltime, 'sid': deali.get('Wtbh', ''), 'code': code, 'tradeType': tradeType,
+                'price': deali.get('Cjjg', 0), 'count': count, 'fee': deali.get('Sxf', 0),
+                'feeYh': deali.get('Yhs', 0), 'feeGh': deali.get('Ghf', 0)
+            })
+
+        self._upload_deals(reversed(fetchedDeals))
+
+    def merge_cum_deals(self, deals):
+        # 合并时间相同的融资利息
+        tdeals = {}
+        for d in deals:
+            if d['time'] in tdeals:
+                tdeals[d['time']]['price'] += d['price']
+            else:
+                tdeals[d['time']] = d
+
+        return list(tdeals.values())
 
     def load_other_deals(self, date):
         # 查询date至今所有其它订单(非买卖订单)
-        pass
+        hdeals = self.get_history_deals(self.hissxl_url, date)
+        fetchedDeals = []
+        dealsTobeCum = []
+        ignoredSm = ['融资买入', '融资借入', '偿还融资负债本金', '担保品卖出', '担保品买入', '担保物转入', '担保物转出', '融券回购', '融券购回', '证券卖出', '证券买入', '配股权证', '配股缴款']
+        otherBuySm = ['红股入账', '配股入帐', '股份转入']
+        otherSellSm = ['股份转出']
+        otherSm = ['配售缴款', '新股入帐', '股息红利差异扣税', '偿还融资利息', '偿还融资逾期利息', '红利入账', '银行转证券', '证券转银行', '利息归本']
+        fsjeSm = ['股息红利差异扣税', '偿还融资利息', '偿还融资逾期利息', '红利入账', '银行转证券', '证券转银行', '利息归本']
+        for deali in hdeals:
+            sm = deali.get('Ywsm', '')
+            if sm in ignoredSm:
+                continue
+
+            tradeType = ''
+            if sm in otherBuySm:
+                tradeType = 'B'
+            elif sm in otherSellSm:
+                tradeType = 'S'
+            elif sm in otherSm:
+                logger.info('other tradeType %s', deali)
+                tradeType = sm
+                if sm == '股息红利差异扣税':
+                    tradeType = '扣税'
+                if sm in ('偿还融资利息', '偿还融资逾期利息'):
+                    tradeType = '融资利息'
+            else:
+                logger.info('unknown deals %s, %s', sm, deali)
+                continue
+
+            code = deali.get('Zqdm', '')
+            if not code:
+                continue
+
+            rq = deali['Fsrq'] if 'Fsrq' in deali and deali['Fsrq'] != '0' else deali['Ywrq']
+            sj = deali['Fssj'] if 'Fssj' in deali and deali['Fssj'] != '0' else deali['Cjsj']
+            dltime = self.get_deal_time(rq, sj)
+            if sm == '红利入账' and dltime.endswith('0:0'):
+                dltime = self.get_deal_time(deali['Fsrq'] if 'Fsrq' in deali and deali['Fsrq'] != '0' else deali['Ywrq'], '150000')
+
+            count = deali.get('Cjsl', 0)
+            price = deali.get('Cjjg', 0)
+            if sm in fsjeSm:
+                count = 1
+                price = deali['Fsje']
+
+            sid = deali.get('Htbh', '')
+            if sm == '配股入帐' and sid == '':
+                continue
+
+            drec = {
+                    'time': dltime, 'sid': sid, 'code': code, 'tradeType': tradeType, 'price': price,
+                    'count': count, 'feeYh': deali.get('Yhs', 0), 'feeGh': deali.get('Ghf', 0)
+                }
+            if tradeType == '融资利息':
+                dealsTobeCum.append(drec)
+            else:
+                fetchedDeals.append(drec)
+
+        if len(dealsTobeCum) > 0:
+            ndeals = self.merge_cum_deals(dealsTobeCum)
+            fetchedDeals.extend(ndeals)
+
+        self._upload_deals(reversed(fetchedDeals))
 
     def buy_fund_before_close(self):
         pass
@@ -174,7 +483,7 @@ class Account:
         fd['stockName'] = ''
         fd['gddm'] = ''
         return fd
-    
+
     @property
     def count_url(self):
         pass
@@ -222,7 +531,7 @@ class Account:
                 price = rp['ask5'] if rp['ask5'] > 0 else rp['top_price']
             elif bstype == 'S':
                 price = rp['bid5'] if rp['bid5'] > 0 else rp['bottom_price']
-        
+
         final_count = count
         if count < 10:
             acount = self.fetch_available_count(code, price, bstype)
@@ -236,7 +545,8 @@ class Account:
         try:
             r = self.jysession.post(self.trade_url, data=data)
             r.raise_for_status()
-            robj = r['data']
+            jdata = r.json()
+            robj = jdata['data']
             if robj['Status'] != 0 or len(robj['Data']) == 0:
                 logger.error('submit trade error: %s, %s, %s', code, bstype, robj)
                 return
@@ -244,7 +554,7 @@ class Account:
                 self.available_money -= price * final_count
             elif bstype == 'S':
                 self.available_money += price * final_count
-            self.hold_account.trading_records.append({'code': code, 'price': price, 'count': count, 'sid': robj['Data'][0]['Wtbh'], 'type': bstype})
+            self.hold_account.trading_records.append({'code': code, 'price': price, 'count': count, 'sid': robj['Data'][0]['Wtbh'], 'type': bstype, 'time': robj['Data'][0]['Wtrq'] + ' ' + robj['Data'][0]['Wtsj']})
         except Exception as e:
             logger.error('submit trade error: %s, %s, %s', code, bstype, e)
 
@@ -253,6 +563,18 @@ class NormalAccount(Account):
     def __init__(self):
         super().__init__()
         self.keyword = 'normal'
+
+    @property
+    def order_url(self):
+        return join_url(self.wgdomain, f'Search/GetOrdersData?validatekey={self.valkey}')
+
+    @property
+    def hisdeals_url(self):
+        return join_url(self.wgdomain, f'Search/GetOrdersData?validatekey={self.valkey}')
+
+    @property
+    def hissxl_url(self):
+        return join_url(self.wgdomain, f'Search/GetFundsFlow?validatekey={self.valkey}')
 
     def get_assets_and_positions(self):
         url = join_url(self.wgdomain, f'/Com/queryAssetAndPositionV1?validatekey={self.valkey}')
@@ -322,6 +644,22 @@ class CollateralAccount(Account):
         self.keyword = 'collat'
         self.buy_jylx = '6'
         self.sell_jylx = '7'
+
+    @property
+    def order_url(self):
+        return join_url(self.wgdomain, f'MarginSearch/GetOrdersData?validatekey={self.valkey}')
+
+    @property
+    def datestr_fmt(self):
+        return '%Y%m%d'
+
+    @property
+    def hisdeals_url(self):
+        return join_url(self.wgdomain, f'MarginSearch/queryCreditHisMatchV2?validatekey={self.valkey}')
+
+    @property
+    def hissxl_url(self):
+        return join_url(self.wgdomain, f'MarginSearch/queryCreditLogAssetV2?validatekey={self.valkey}')
 
     def get_assets_and_positions(self):
         return self.get_assets(), self.get_positions()
@@ -416,8 +754,74 @@ class CreditAccount(CollateralAccount):
     def load_watchings(self):
         pass
 
-    def check_orders(self):
+    def get_orders(self):
         pass
+
+
+class TrackingAccount(Account):
+    def __init__(self, keyword):
+        super().__init__()
+        self.keyword = keyword
+        self.available_money = 0.0
+        self.sid = (int(datetime.now().strftime('%Y%m%d')) % 1000000) * 1000
+
+    def load_his_deals(self, date):
+        pass
+
+    def load_other_deals(self, date):
+        pass
+
+    def check_orders(self):
+        sdeals = {}
+        for d in self.trading_records:
+            code = d.get('code', None)
+            if not code:
+                continue
+            if code not in sdeals:
+                sdeals[code] = []
+            sdeals[code].append({**{
+                k: v for k,v in d.items() if k != 'time'
+            }, 'date': d['time']
+            })
+
+        for code, deals in sdeals.items():
+            self.extend_stock_buydetail(code, deals)
+
+        return sdeals
+
+    def trade(self, code, price, count, bstype):
+        time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        stk = self.get_stock(code)
+        if not stk:
+            if bstype == 'S':
+                logger.error(self.keyword, 'sell stock not found: %s', code)
+                return
+            self.add_watch_stock(code, {})
+            stk = self.get_stock(code)
+
+        rec = next((x for x in self.trading_records if x['code'] == code and x['type'] == bstype and x['price'] == price and x['count'] == count), None)
+        if rec:
+            logger.error(self.keyword, 'duplicate trade record: %s %s %s %s', code, bstype, price, count)
+            return
+
+        if bstype == 'S':
+            if stk['holdCount'] < count:
+                logger.error(self.keyword, 'sell count more than hold count: %s', code)
+                return
+            stk['holdCount'] -= count
+        else:
+            stk['holdCount'] += count
+
+        self.trading_records.append({
+            'code': code,
+            'price': price,
+            'count': count,
+            'time': time,
+            'sid': self.sid,
+            'type': bstype,
+        })
+        self.sid += 1
 
 
 class accld:
@@ -443,18 +847,70 @@ class accld:
             self.all_accounts[self.collateral_account.keyword] = self.collateral_account
             self.all_accounts[self.credit_account.keyword] = self.credit_account
 
+    @classmethod
+    def init_track_accounts(self):
+        url = join_url(self.fha.server, 'userbind?onlystock=1')
+        r = requests.post(url, headers=self.fha['headers'])
+        r.raise_for_status()
+        accs = r.json()
+        for acc in accs:
+            if acc['realcash']:
+                logger.info('skip realcash acc in track account')
+                continue
+            self.track_accounts.append(TrackingAccount(acc['name']))
+        for account in self.track_accounts:
+            self.all_accounts[account.keyword] = account
+            account.load_watchings()
 
     @classmethod
-    def load_his_deals(self):
-        pass
+    def upload_every_monday(self):
+        """每周一上传历史成交记录"""
+        if datetime.now().weekday() != 0:
+            return
+
+        url = join_url(self.fha['server'], 'api/tradingdates?len=30')
+        try:
+            r = requests.get(url)
+            r.raise_for_status()
+            dates = r.json()
+            if not dates or len(dates) == 0:
+                raise ValueError('no trading dates found')
+            for date in reversed(dates):
+                pdate = datetime.strptime(date, '%Y-%m-%d')
+                if pdate.weekday() == 0:
+                    break
+        except Exception as e:
+            date = (datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d')
+        finally:
+            self.load_his_deals(date)
+            self.load_other_deals(date)
 
     @classmethod
-    def load_other_deals(self):
-        pass
+    def load_his_deals(self, date):
+        self.normal_account.load_his_deals(date)
+        if self.collateral_account:
+            self.collateral_account.load_his_deals(date)
+
+    @classmethod
+    def load_other_deals(self, date):
+        self.normal_account.load_other_deals(date)
+        if self.collateral_account:
+            self.collateral_account.load_other_deals(date)
 
     @classmethod
     def check_rzrq(self, code):
-        pass
+        if not self.credit_account:
+            return False
+
+        snap = get_rt_price(code)
+        data = self.credit_account.get_count_form_data(code, snap['price'], 'B')
+        try:
+            r = self.jysession.post(self.credit_account.count_url, data=data)
+            r.raise_for_status()
+            robj = r.json()
+            return robj['data']['Status'] != -1
+        except Exception as e:
+            return False
 
     @classmethod
     def buy_new_stocks(self):
@@ -701,7 +1157,7 @@ class accld:
 
         if strategies:
             self.all_accounts[account].hold_account.add_watch_stock(code, strategies)
-        
+
         if count == 0:
             stk = self.all_accounts[account].hold_account.get_stock(code)
             if not stk or ['strategies'] not in stk:
@@ -732,3 +1188,21 @@ class accld:
     def test_trade_api(self, code='601398'):
         snap = get_rt_price(code)
         self.buy_stock(code, snap['bottom_price'], calc_buy_count(1000, snap['bottom_price']), 'normal')
+
+    @classmethod
+    def create_deals_for_transfer(self, order):
+        """处理担保品划入/划出订单"""
+        code = order.get('Wtjg', '').replace('.', '')
+        date = datetime.now().strftime('%Y-%m-%d')
+        price = order.get('Cjjg', 0)
+        count = order.get('Cjsl', 0)
+        sid = order.get('Wtbh', '')
+        sdeal = { 'code': code, 'price': price, 'count': count, 'sid': sid, 'type': 'S', 'date': date }
+        bdeal = { 'code': code, 'price': price, 'count': count, 'sid': sid, 'type': 'B', 'date': date }
+        tradeType = order.get('Mmsm', '')
+        if tradeType == "担保品划出":
+            self.normal_account.extend_stock_buydetail(code, [bdeal])
+            self.collateral_account.extend_stock_buydetail(code, [sdeal])
+        elif tradeType == "担保品划入":
+            self.normal_account.extend_stock_buydetail(code, [sdeal])
+            self.collateral_account.extend_stock_buydetail(code, [bdeal])
