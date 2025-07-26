@@ -3,9 +3,8 @@ import json
 import requests
 from datetime import datetime, timedelta
 from misc import get_rt_price, join_url, get_mkt_code, calc_buy_count, delay_seconds
+from log import logger
 
-
-logger = logging.getLogger('emtrader')
 
 class Account():
     def __init__(self):
@@ -75,8 +74,8 @@ class Account():
             logger.info(self.keyword, 'loadWatchings no watchings')
             return
 
-        for code, strategies in watchings.items():
-            self.add_watch_stock(code[-6:], strategies)
+        for code, stk in watchings.items():
+            self.add_watch_stock(code[-6:], stk.get('strategies', None))
 
     def add_watch_stock(self, code, strgrp):
         stock = self.get_stock(code)
@@ -494,7 +493,7 @@ class Account():
             r = self.jysession.post(self.count_url, data=data)
             r.raise_for_status()
             robj = r.json()
-            return int(robj['data']['Data']['Kmml'])
+            return int(robj['Data']['Kmml'])
         except Exception as e:
             return 0
 
@@ -545,8 +544,7 @@ class Account():
         try:
             r = self.jysession.post(self.trade_url, data=data)
             r.raise_for_status()
-            jdata = r.json()
-            robj = jdata['data']
+            robj = r.json()
             if robj['Status'] != 0 or len(robj['Data']) == 0:
                 logger.error('submit trade error: %s, %s, %s', code, bstype, robj)
                 return
@@ -554,7 +552,10 @@ class Account():
                 self.available_money -= price * final_count
             elif bstype == 'S':
                 self.available_money += price * final_count
-            self.hold_account.trading_records.append({'code': code, 'price': price, 'count': count, 'sid': robj['Data'][0]['Wtbh'], 'type': bstype, 'time': robj['Data'][0]['Wtrq'] + ' ' + robj['Data'][0]['Wtsj']})
+            dltime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            self.hold_account.trading_records.append({
+                'code': code, 'price': price, 'count': count, 'sid': robj['Data'][0]['Wtbh'], 'type': bstype, 'time': dltime
+            })
         except Exception as e:
             logger.error('submit trade error: %s, %s, %s', code, bstype, e)
 
@@ -570,7 +571,7 @@ class NormalAccount(Account):
 
     @property
     def hisdeals_url(self):
-        return join_url(self.wgdomain, f'Search/GetOrdersData?validatekey={self.valkey}')
+        return join_url(self.wgdomain, f'Search/GetHisDealData?validatekey={self.valkey}')
 
     @property
     def hissxl_url(self):
@@ -692,7 +693,7 @@ class CollateralAccount(Account):
             accld.credit_account.available_money = float(assets['Bzjkys'])
 
     def get_positions(self):
-        url = join_url(self.wgdomain, f'/MarginSearch/GetRzrqPositions?validatekey={self.valkey}')
+        url = join_url(self.wgdomain, f'/MarginSearch/GetStockList?validatekey={self.valkey}')
         try:
             r = self.jysession.post(url)
             r.raise_for_status()
@@ -849,8 +850,8 @@ class accld:
 
     @classmethod
     def init_track_accounts(self):
-        url = join_url(self.fha.server, 'userbind?onlystock=1')
-        r = requests.post(url, headers=self.fha['headers'])
+        url = join_url(self.fha['server'], 'userbind?onlystock=1')
+        r = requests.get(url, headers=self.fha['headers'])
         r.raise_for_status()
         accs = r.json()
         for acc in accs:
@@ -905,11 +906,12 @@ class accld:
         snap = get_rt_price(code)
         data = self.credit_account.get_count_form_data(code, snap['price'], 'B')
         try:
-            r = self.jysession.post(self.credit_account.count_url, data=data)
+            r = self.jywg.session.post(self.credit_account.count_url, data=data)
             r.raise_for_status()
             robj = r.json()
-            return robj['data']['Status'] != -1
+            return robj['Status'] != -1
         except Exception as e:
+            logger.error('check rzrq error: %s', e)
             return False
 
     @classmethod
@@ -922,7 +924,7 @@ class accld:
 
         url = join_url(jywg.jywg, f'/Trade/GetCanBuyNewStockListV3?validatekey={jywg.validate_key}')
         try:
-            response = self.jysession.post(url)
+            response = self.jywg.session.post(url)
             response.raise_for_status()
             robj = response.json()
 

@@ -1,27 +1,15 @@
-import logging
+import os
 import sys
+import logging
 
+lg_path = os.path.join(os.path.dirname(__file__), '../logs/emtrader.log')
+if not os.path.isdir(os.path.dirname(lg_path)):
+    os.mkdir(os.path.dirname(lg_path))
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s | %(asctime)s-%(filename)s@%(lineno)d<%(name)s> %(message)s',
+    handlers=[logging.FileHandler(lg_path), logging.StreamHandler(sys.stdout)],
+    force=True
+)
 
-class phonloger:
-    def __init__(self):
-        self._logger = None
-
-    def _init_logger(self):
-        if self._logger is None:
-            self._logger = logging.getLogger('pyphon')
-            
-            # 如果logger还没有handler，添加一个
-            if not self._logger.handlers:
-                handler = logging.StreamHandler(sys.stdout)
-                formatter = logging.Formatter(
-                    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-                )
-                handler.setFormatter(formatter)
-                self._logger.addHandler(handler)
-                self._logger.setLevel(logging.INFO)
-
-    def __getattr__(self, name):
-        self._init_logger()
-        return getattr(self._logger, name)
-
-logger: logging.Logger = phonloger()
+logger: logging.Logger = logging.getLogger('pyphon')

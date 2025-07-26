@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'pyphon'))
 
 from pyphon.accounts import Account, NormalAccount, CollateralAccount, TrackingAccount, accld
-from pyphon.misc import delay_seconds, join_url, safe_float, get_mkt_code, calc_buy_count, get_stock_snapshot
+from pyphon.misc import *
 
 
 class TestAccount(Account):
@@ -397,6 +397,15 @@ class TestMiscFunctions(unittest.TestCase):
         self.assertIsInstance(result['top_price'], float)
         self.assertIsInstance(result['bottom_price'], float)
         self.assertIsInstance(result['buysells'], dict)
+
+    def test_get_rt_price(self):
+        """测试 get_stock_snapshot 的边界情况"""
+        result = get_rt_price('600000')
+        self.assertIsInstance(result['price'], float)
+        self.assertIsInstance(result['top_price'], float)
+        self.assertIsInstance(result['bottom_price'], float)
+        self.assertIsInstance(result['ask5'], float)
+        self.assertIsInstance(result['bid5'], float)
 
 
 class TestAccountProperties(unittest.TestCase):
@@ -1264,10 +1273,8 @@ class TestAccountTrade(unittest.TestCase):
 
         mock_response = Mock()
         mock_response.json.return_value = {
-            'data': {
-                'Status': 0,
-                'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
-            }
+            'Status': 0,
+            'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
         }
         self.account.jysession.post.return_value = mock_response
 
@@ -1290,10 +1297,8 @@ class TestAccountTrade(unittest.TestCase):
 
         mock_response = Mock()
         mock_response.json.return_value = {
-            'data': {
-                'Status': 0,
-                'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
-            }
+            'Status': 0,
+            'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
         }
         self.account.jysession.post.return_value = mock_response
 
@@ -1307,10 +1312,8 @@ class TestAccountTrade(unittest.TestCase):
         """测试小数量时的调整逻辑"""
         mock_response = Mock()
         mock_response.json.return_value = {
-            'data': {
-                'Status': 0,
-                'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
-            }
+            'Status': 0,
+            'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
         }
         self.account.jysession.post.return_value = mock_response
 
@@ -1325,10 +1328,8 @@ class TestAccountTrade(unittest.TestCase):
         """测试成功的买入交易"""
         mock_response = Mock()
         mock_response.json.return_value = {
-            'data': {
-                'Status': 0,
-                'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
-            }
+            'Status': 0,
+            'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
         }
         self.account.jysession.post.return_value = mock_response
 
@@ -1349,10 +1350,8 @@ class TestAccountTrade(unittest.TestCase):
         """测试成功的卖出交易"""
         mock_response = Mock()
         mock_response.json.return_value = {
-            'data': {
-                'Status': 0,
-                'Data': [{'Wtbh': 'ORDER002', 'Wtrq': '20250115', 'Wtsj': '150000'}]
-            }
+            'Status': 0,
+            'Data': [{'Wtbh': 'ORDER002', 'Wtrq': '20250115', 'Wtsj': '150000'}]
         }
         self.account.jysession.post.return_value = mock_response
 
@@ -1371,11 +1370,9 @@ class TestAccountTrade(unittest.TestCase):
         """测试API返回错误"""
         mock_response = Mock()
         mock_response.json.return_value = {
-            'data': {
-                'Status': 1,  # 错误状态
-                'Message': 'Trade failed',
-                'Data': []
-            }
+            'Status': 1,  # 错误状态
+            'Message': 'Trade failed',
+            'Data': []
         }
         self.account.jysession.post.return_value = mock_response
 
@@ -1521,5 +1518,5 @@ class TestTrackingAccountMethods(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
     # suite = unittest.TestSuite()
-    # suite.addTest(TestAccountLoadOtherDeals('test_merge_cum_deals'))
+    # suite.addTest(TestMiscFunctions('test_get_rt_price'))
     # unittest.TextTestRunner().run(suite)

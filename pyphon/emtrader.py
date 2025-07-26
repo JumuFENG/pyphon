@@ -1,4 +1,3 @@
-import logging
 import os
 import base64
 from typing import Dict, Any, Optional
@@ -9,20 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel, Field
 from config import Config
-from log import logger
+from log import logger, logging
 from jywg import jywg
 from accounts import accld
 from timers import alarm_hub
-
-
-# 将FastAPI相关的日志重定向到自定义logger
-for logger_name in ["fastapi", "uvicorn", "uvicorn.access","uvicorn.error"]:
-    log = logging.getLogger(logger_name)
-    log.handlers.clear()
-    log.setLevel(logger.level)
-    log.propagate = False
-    for h in logger.handlers:
-        log.addHandler(h)
+from misc import is_today_trading_day
 
 
 # 获取配置
@@ -40,22 +30,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-class TradeRequest(BaseModel):
-    # 根据实际需求定义交易请求的字段
-    code: str  # 股票代码，必填
-    action: str  # 买入或卖出，必填
-    price: float  # 价格，必填
-    quantity: int  # 数量，必填
-    order_type: str = "limit"  # 订单类型，可选，默认为"limit"
-    remark: Optional[str] = None  # 备注，可选
-    timeout: Optional[int] = Field(
-        default=60,
-        description="订单超时时间（秒）",
-        ge=10,  # 大于等于10
-        le=300  # 小于等于300
-    )
-
 
 class TradingExtension:
     def __init__(self):
@@ -109,7 +83,7 @@ class TradingExtension:
         accld.jywg = self.jywg
         acc = Config.account()
         fha = Config.data_service()
-        bearer = base64.b64encode((fha['uemail'] + ":" + Config.simple_decrypt(fha['pwd'])).encode()).decode()
+        bearer = base64.b64encode(f"{fha['uemail']}:{Config.simple_decrypt(fha['pwd'])}".encode()).decode()
         fha['headers'] = {'Authorization': f'Basic {bearer}'}
         accld.enable_credit = acc['credit']
         accld.fha = fha
@@ -117,8 +91,8 @@ class TradingExtension:
         accld.normal_account.load_assets()
         if acc['credit']:
             accld.collateral_account.load_assets()
-        # accld.init_track_accounts()
-        # # costDog.init()
+        accld.init_track_accounts()
+        # costDog.init()
         alarm_hub.purchase_new_stocks = tconfig['purchase_new_stocks']
         alarm_hub.on_trade_closed = self.on_trade_closed
         alarm_hub.setup_alarms()
@@ -130,7 +104,11 @@ class TradingExtension:
 
     def handleStatus(self):
         # 返回交易系统状态
-        return {"status": "ok" if self.running else "stopped"}
+        return {
+            "running": self.running,
+            "status": self.status if self.status else ("running" if self.running else "stopped"),
+            "accounts": list(accld.all_accounts.keys()) if accld.all_accounts else []
+        }
 
     def handleStart(self):
         """启动交易系统并取消即将执行的自动启动任务"""
@@ -146,16 +124,81 @@ class TradingExtension:
 
     def handleTrade(self, trade_data):
         # 处理交易请求
-        logger.info(f"处理交易请求: {trade_data}")
+        code = trade_data.get('code')
+        tradeType = trade_data.get('tradeType')
+        count = trade_data.get('count', 0)
+        price = trade_data.get('price', 0)
+        account = trade_data.get('account')
+        strategies = trade_data.get('strategies')
+
+        # 验证必填参数
+        if not code or not tradeType:
+            logger.error(f"Missing required parameters: code={code}, tradeType={tradeType}")
+            return False
+
+        if tradeType == 'B':
+            if not account:
+                # 买入时如果没有指定账户，自动选择
+                rzrq = accld.check_rzrq(code)
+                account = 'credit' if rzrq else 'normal'
+                logger.info(f"Auto-selected account: {account} for code: {code}")
+            accld.buy_stock(code, price, count, account, strategies)
+        elif tradeType == 'S':
+            if not account:
+                logger.error("Account is required for sell orders")
+                return False
+            accld.sell_stock(code, price, count, account)
+        elif strategies and code and account:
+            # 仅添加监控股票
+            accld.all_accounts[account].addWatchStock(code, strategies)
+        else:
+            logger.error(f"Invalid trade request: tradeType={tradeType}, code={code}, account={account}")
+            return False
         return True
 
-    def handleAccountStocks(self, query_params):
+    def handleAccountStocks(self, account='normal'):
         # 获取账户股票信息
-        return {"stocks": []}
+        if not self.running:
+            logger.warning("Trading system is not running")
+            return {"error": "Trading system is not running", "stocks": []}
 
-    def handleAccountDeals(self, query_params):
-        # 获取账户交易记录
-        return {"deals": []}
+        if account not in accld.all_accounts:
+            logger.error(f"Invalid account: {account}")
+            return {"error": f"Invalid account: {account}", "stocks": []}
+
+        try:
+            stocks = []
+            for s in accld.all_accounts[account].stocks:
+                sobj = {k: v for k,v in s.items() if k not in ('buydetail', 'buydetail_full')}
+                if s.get('buydetail', None) or s.get('buydetail_full', None):
+                    if 'strategies' not in sobj or not sobj['strategies']:
+                        sobj['strategies'] = {'buydetail': s['buydetail'], 'buydetail_full': s['buydetail_full']}
+                    else:
+                        sobj['strategies']['buydetail'] = s['buydetail']
+                        sobj['strategies']['buydetail_full'] = s['buydetail_full']
+                stocks.append(sobj)
+            return {"account": account, "stocks": stocks}
+        except Exception as e:
+            logger.error(f"Error getting stocks for account {account}: {str(e)}")
+            return {"error": str(e), "stocks": []}
+
+    def handleAccountDeals(self, account='normal'):
+        # 获取账户当日交易记录
+        if not self.running:
+            logger.warning("Trading system is not running")
+            return {"error": "Trading system is not running", "deals": []}
+
+        if account not in accld.all_accounts:
+            logger.error(f"Invalid account: {account}")
+            return {"error": f"Invalid account: {account}", "deals": []}
+
+        try:
+            deals = accld.all_accounts[account].get_orders()
+            return {"account": account, "deals": deals}
+        except Exception as e:
+            logger.error(f"Error getting deals for account {account}: {str(e)}")
+            return {"error": str(e), "deals": []}
+
 
 # 创建交易扩展实例
 ext = TradingExtension()
@@ -175,50 +218,93 @@ async def root():
 
 @app.get("/status")
 async def status():
-    r = ext.handleStatus()
-    return r
+    """获取交易系统状态"""
+    try:
+        return ext.handleStatus()
+    except Exception as e:
+        logger.error(f"Error getting status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/start")
 async def start():
-    s = ext.handleStart()
-    return s
+    """启动交易系统"""
+    try:
+        return ext.handleStart()
+    except Exception as e:
+        logger.error(f"Error starting system: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+class TradeRequest(BaseModel):
+    # 根据实际需求定义交易请求的字段
+    code: str = Field(..., description="股票代码，必填")
+    tradeType: str = Field(..., description="交易类型：B(买入)或S(卖出)，必填")
+    account: Optional[str] = Field(None, description="账户类型：normal, collateral, credit等，买入时可选")
+    price: float = Field(0, description="价格，0表示市价")
+    count: int = Field(0, description="数量")
+    strategies: Optional[Dict[str, Any]] = Field(None, description="策略参数，可选")
 
 @app.post("/trade")
-async def trade(request: Request):
-    trade_data = await request.json()
-    if ext.handleTrade(trade_data):
-        return {"message": "Success"}
-    raise HTTPException(status_code=404, detail="Trade type not found!")
+async def trade(request: TradeRequest):
+    try:
+        if ext.handleTrade(request.dict()):
+            return {"status": "success", "message": "Trade executed successfully"}
+        else:
+            raise HTTPException(status_code=400, detail="Trade execution failed")
+    except Exception as e:
+        logger.error(f"Trade error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/stocks")
-async def stocks(request: Request):
-    query_params = dict(request.query_params)
-    return ext.handleAccountStocks(query_params)
+async def stocks(account: str = Query('normal', description="账户类型: normal, collateral, credit, track")):
+    """获取指定账户的股票持仓信息"""
+    try:
+        return ext.handleAccountStocks(account)
+    except Exception as e:
+        logger.error(f"Error in /stocks endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/deals")
-async def deals(request: Request):
-    query_params = dict(request.query_params)
-    return ext.handleAccountDeals(query_params)
+async def deals(account: str = Query('normal', description="账户类型: normal, collateral, credit, track")):
+    """获取指定账户的交易记录"""
+    try:
+        return ext.handleAccountDeals(account)
+    except Exception as e:
+        logger.error(f"Error in /deals endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/iunstrs")
 async def iunstrs():
-    return tconfig.get('iunstrs', {})
+    """获取配置的iunstrs信息"""
+    try:
+        return tconfig.get('iunstrs', {})
+    except Exception as e:
+        logger.error(f"Error getting iunstrs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/rzrq")
-async def rzrq(code: str = Query(None)):
-    if not ext.running:
-        return False
-    rzrq_result = await accld.check_rzrq(code)
-    return rzrq_result.get("Status") != -1
+async def rzrq(code: str = Query(..., description="股票代码，必填")):
+    """检查股票是否支持融资融券"""
+    try:
+        if not ext.running:
+            return False
+
+        if not code:
+            raise HTTPException(status_code=400, detail="Stock code is required")
+
+        return accld.check_rzrq(code)
+    except Exception as e:
+        logger.error(f"Error checking rzrq for code {code}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 def start_server():
     # 设置定时任务
-    ext.schedule()
+    if is_today_trading_day():
+        ext.schedule()
 
     # 启动服务器 - 禁用uvicorn的默认日志配置，使用我们的自定义logger
     uvicorn.run(
-        app, 
-        host="0.0.0.0", 
+        app,
+        host="0.0.0.0",
         port=port,
         log_config=None,  # 禁用默认日志配置
         access_log=True

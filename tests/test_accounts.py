@@ -422,10 +422,8 @@ class TestNormalAccountTrade(unittest.TestCase):
         # Mock HTTP响应
         mock_response = Mock()
         mock_response.json.return_value = {
-            'data': {
-                'Status': 0,
-                'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
-            }
+            'Status': 0,
+            'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
         }
         mock_response.raise_for_status.return_value = None
         mock_session.post.return_value = mock_response
@@ -464,11 +462,9 @@ class TestNormalAccountTrade(unittest.TestCase):
 
         mock_response = Mock()
         mock_response.json.return_value = {
-            'data': {
-                'Status': 1,  # 错误状态
-                'Message': 'Trade failed',
-                'Data': []
-            }
+            'Status': 1,  # 错误状态
+            'Message': 'Trade failed',
+            'Data': []
         }
         mock_response.raise_for_status.return_value = None
         mock_session.post.return_value = mock_response
@@ -537,10 +533,8 @@ class TestCollateralAccountMethods(unittest.TestCase):
         # Mock HTTP响应
         mock_response = Mock()
         mock_response.json.return_value = {
-            'data': {
-                'Status': 0,
-                'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
-            }
+            'Status': 0,
+            'Data': [{'Wtbh': 'ORDER001', 'Wtrq': '20250115', 'Wtsj': '143000'}]
         }
         mock_response.raise_for_status.return_value = None
         mock_session.post.return_value = mock_response
@@ -558,7 +552,7 @@ class TestCollateralAccountMethods(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    # unittest.main()
-    suite = unittest.TestSuite()
-    suite.addTest(TestNormalAccountGetHistoryDeals('test_get_history_deals_string_date'))
-    unittest.TextTestRunner().run(suite)
+    unittest.main()
+    # suite = unittest.TestSuite()
+    # suite.addTest(TestNormalAccountGetHistoryDeals('test_get_history_deals_string_date'))
+    # unittest.TextTestRunner().run(suite)

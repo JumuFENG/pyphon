@@ -23,7 +23,7 @@ class Config:
                 "unp": {
                     "account": "",
                     "pwd": "",
-                    "credit": False 
+                    "credit": False
                 },
                 "client": {
                     "purchase_new_stocks": True,
