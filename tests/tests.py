@@ -183,6 +183,11 @@ class TestAccountMethods(unittest.TestCase):
             result = self.account.parse_position(position)
 
             self.assertEqual(result['availableCount'], 80)  # 应该保持原值
+            self.assertEqual(result['latestPrice'], 13.20)
+            self.assertEqual(result['holdCount'], 100)
+            self.assertEqual(result['holdCost'], 12.50)
+            self.assertEqual(result['code'], '600000')
+            self.assertEqual(result['name'], '浦发银行')
 
     @patch('pyphon.accounts.get_mkt_code')
     def test_get_count_form_data(self, mock_get_mkt_code):
@@ -592,8 +597,8 @@ class TestAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '证券买入',
                 'Wtzt': '已成',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             },
@@ -601,8 +606,8 @@ class TestAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '000001',
                 'Mmsm': '证券卖出',
                 'Wtzt': '已撤',
-                'Cjjg': 10.80,
-                'Cjsl': 200,
+                'Cjjg': '10.80',
+                'Cjsl': '200',
                 'Wtbh': 'ORDER002',
                 'Zqmc': '平安银行'
             }
@@ -646,8 +651,8 @@ class TestAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '证券买入',
                 'Wtzt': '部成',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             }
@@ -671,8 +676,8 @@ class TestAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '证券买入',
                 'Wtzt': '部成',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             }
@@ -697,8 +702,8 @@ class TestAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '担保品划入',
                 'Wtzt': '已确认',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             }
@@ -724,8 +729,8 @@ class TestAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '配售申购',
                 'Wtzt': '已报',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             }
@@ -752,8 +757,8 @@ class TestAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '证券买入',
                 'Wtzt': '已成',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             }
@@ -944,24 +949,24 @@ class TestAccountLoadHisDeals(unittest.TestCase):
                 'Zqdm': '600000',
                 'Cjrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 100,
-                'Cjjg': 12.50,
+                'Cjsl': '100',
+                'Cjjg': '12.50',
                 'Wtbh': 'ORDER001',
-                'Sxf': 5.0,
-                'Yhs': 1.0,
-                'Ghf': 2.0
+                'Sxf': '5.0',
+                'Yhs': '1.0',
+                'Ghf': '2.0'
             },
             {
                 'Mmsm': '证券卖出',
                 'Zqdm': '000001',
                 'Cjrq': '20250115',
                 'Cjsj': '150000',
-                'Cjsl': 200,
-                'Cjjg': 10.80,
+                'Cjsl': '200',
+                'Cjjg': '10.80',
                 'Wtbh': 'ORDER002',
-                'Sxf': 8.0,
-                'Yhs': 2.0,
-                'Ghf': 3.0
+                'Sxf': '8.0',
+                'Yhs': '2.0',
+                'Ghf': '3.0'
             }
         ]
 
@@ -980,7 +985,7 @@ class TestAccountLoadHisDeals(unittest.TestCase):
                     self.assertEqual(len(uploaded_deals), 2)
 
                     # 验证第一个交易记录
-                    deal1 = uploaded_deals[1]  # reversed后的第一个
+                    deal1 = uploaded_deals[0]  # reversed后的第一个
                     self.assertEqual(deal1['code'], '600000')
                     self.assertEqual(deal1['tradeType'], 'B')
                     self.assertEqual(deal1['price'], 12.50)
@@ -996,8 +1001,8 @@ class TestAccountLoadHisDeals(unittest.TestCase):
                 'Zqdm': '600000',
                 'Cjrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 100,
-                'Cjjg': 12.50,
+                'Cjsl': '100',
+                'Cjjg': '12.50',
                 'Wtbh': 'ORDER001'
             }
         ]
@@ -1022,8 +1027,8 @@ class TestAccountLoadHisDeals(unittest.TestCase):
                 'Zqdm': '',  # 空代码
                 'Cjrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 100,
-                'Cjjg': 12.50,
+                'Cjsl': '100',
+                'Cjjg': '12.50',
                 'Wtbh': 'ORDER001'
             }
         ]
@@ -1044,8 +1049,8 @@ class TestAccountLoadHisDeals(unittest.TestCase):
                 'Zqdm': '600000',
                 'Cjrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 0,  # 零数量
-                'Cjjg': 12.50,
+                'Cjsl': '0',  # 零数量
+                'Cjjg': '12.50',
                 'Wtbh': 'ORDER001'
             }
         ]
@@ -1082,12 +1087,13 @@ class TestAccountLoadOtherDeals(unittest.TestCase):
                 'Cjsj': '000000',
                 'Fsrq': '20250115',
                 'Fssj': '150000',
-                'Cjsl': 1,
-                'Cjjg': 0,
-                'Fsje': 100.0,
+                'Cjsl': '1',
+                'Cjjg': '0',
+                'Fsje': '100.0',
                 'Htbh': 'DIV001',
-                'Yhs': 0,
-                'Ghf': 0
+                'Sxf': '0',
+                'Yhs': '0',
+                'Ghf': '0'
             }
         ]
 
@@ -1112,11 +1118,12 @@ class TestAccountLoadOtherDeals(unittest.TestCase):
                 'Zqdm': '600000',
                 'Ywrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 100,
-                'Cjjg': 12.50,
+                'Cjsl': '100',
+                'Cjjg': '12.50',
                 'Htbh': 'TRANS001',
-                'Yhs': 0,
-                'Ghf': 0
+                'Sxf': '0',
+                'Yhs': '0',
+                'Ghf': '0'
             }
         ]
 
@@ -1140,24 +1147,26 @@ class TestAccountLoadOtherDeals(unittest.TestCase):
                 'Zqdm': '600000',
                 'Ywrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 1,
-                'Cjjg': 0,
-                'Fsje': 50.0,
+                'Cjsl': '1',
+                'Cjjg': '0',
+                'Fsje': '50.0',
                 'Htbh': 'INT001',
-                'Yhs': 0,
-                'Ghf': 0
+                'Sxf': '0',
+                'Yhs': '0',
+                'Ghf': '0'
             },
             {
                 'Ywsm': '偿还融资利息',
                 'Zqdm': '600000',
                 'Ywrq': '20250115',
                 'Cjsj': '143000',  # 相同时间
-                'Cjsl': 1,
-                'Cjjg': 0,
-                'Fsje': 30.0,
+                'Cjsl': '1',
+                'Cjjg': '0',
+                'Fsje': '30.0',
                 'Htbh': 'INT002',
-                'Yhs': 0,
-                'Ghf': 0
+                'Sxf': '0',
+                'Yhs': '0',
+                'Ghf': '0'
             }
         ]
 
@@ -1181,8 +1190,8 @@ class TestAccountLoadOtherDeals(unittest.TestCase):
                 'Zqdm': '600000',
                 'Ywrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 100,
-                'Cjjg': 12.50,
+                'Cjsl': '100',
+                'Cjjg': '12.50',
                 'Htbh': 'IGN001'
             }
         ]
@@ -1202,8 +1211,8 @@ class TestAccountLoadOtherDeals(unittest.TestCase):
                 'Zqdm': '',  # 空代码
                 'Ywrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 1,
-                'Fsje': 100.0,
+                'Cjsl': '1',
+                'Fsje': '100.0',
                 'Htbh': 'DIV001'
             }
         ]
@@ -1518,5 +1527,5 @@ class TestTrackingAccountMethods(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
     # suite = unittest.TestSuite()
-    # suite.addTest(TestMiscFunctions('test_get_rt_price'))
+    # suite.addTest(TestAccountLoadHisDeals('test_load_his_deals_success'))
     # unittest.TextTestRunner().run(suite)

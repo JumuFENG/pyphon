@@ -1,7 +1,7 @@
 import random
 from time import sleep
 from threading import Timer
-from log import logger
+from lofig import logger
 from accounts import accld
 from misc import delay_seconds
 
@@ -25,7 +25,7 @@ class alarm_hub:
         timer.start()
         tid = self.last_tid + 1
         self.timers.append({'id': tid, 'timer': timer})
-        logger.info(f"已设置定时任务{callback.__name__}，将在 {target_time} 执行")
+        logger.info(f"已设置定时任务{callback.__name__}，将在 {target_time if seconds_until > 1 else '现在'} 执行")
         return tid
 
     @classmethod
@@ -63,7 +63,7 @@ class alarm_hub:
             else:
                 short_seconds_wait *= 2
 
-            sleep(seconds = min(short_seconds_wait, seconds))
+            sleep(min(short_seconds_wait, seconds))
 
     @classmethod
     def daily_routine_tasks(self):
@@ -90,7 +90,7 @@ class alarm_hub:
         logger.info("交易日结束，执行收盘后处理")
 
         # 保存当日交易数据
-        for acc in accld.all_accounts:
+        for acc in accld.all_accounts.values():
             deals = acc.load_deals()
             acc.archive_deals(deals)
 

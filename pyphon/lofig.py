@@ -1,8 +1,22 @@
-import json
 import os
+import sys
+import logging
+import json
 import base64
 import random
 from functools import lru_cache
+
+lg_path = os.path.join(os.path.dirname(__file__), '../logs/emtrader.log')
+if not os.path.isdir(os.path.dirname(lg_path)):
+    os.mkdir(os.path.dirname(lg_path))
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(levelname)s | %(asctime)s-%(filename)s@%(lineno)d<%(name)s> %(message)s',
+    handlers=[logging.FileHandler(lg_path), logging.StreamHandler(sys.stdout)],
+    force=True
+)
+
+logger: logging.Logger = logging.getLogger('pyphon')
 
 
 class Config:
@@ -42,7 +56,7 @@ class Config:
         if not allconfigs['unp']['pwd'].startswith('*'):
             allconfigs['unp']['pwd'] = self.simple_encrypt(allconfigs['unp']['pwd'])
             bsave = True
-        if not allconfigs['fha']['pwd'].startswith('*'):
+        if 'pwd' in allconfigs['fha'] and not allconfigs['fha']['pwd'].startswith('*'):
             allconfigs['fha']['pwd'] = self.simple_encrypt(allconfigs['fha']['pwd'])
             bsave = True
         if bsave:

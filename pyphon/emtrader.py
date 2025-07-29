@@ -1,5 +1,6 @@
 import os
 import base64
+from traceback import format_exc
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, Request, Response, HTTPException, Body, Query
 from fastapi.responses import FileResponse, JSONResponse
@@ -7,12 +8,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel, Field
-from config import Config
-from log import logger, logging
+from lofig import logger, Config
 from jywg import jywg
 from accounts import accld
 from timers import alarm_hub
-from misc import is_today_trading_day
+from misc import is_today_trading_day, delay_seconds
 
 
 # 获取配置
@@ -30,6 +30,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 class TradingExtension:
     def __init__(self):
@@ -51,9 +52,14 @@ class TradingExtension:
         - 如果当前时间超过预定时间则不执行
         """
         # 如果已经收盘，不设置任何任务
-        if alarm_hub.delay_seconds('15:00') <= 0:
+        if delay_seconds('15:00') <= 0:
             logger.info("已收盘，不设置定时任务")
             return
+
+        if not is_today_trading_day():
+            logger.info("今天不是交易日，不设置定时任务")
+            return
+
         # 处理上午交易时段
         tid = alarm_hub.add_timer_task(self.start, '9:12', '11:30')
         if tid:
@@ -69,7 +75,7 @@ class TradingExtension:
             return
 
         for task in self.start_timers:
-            if alarm_hub.delay_seconds(task['end']) < 3*60*60:
+            if delay_seconds(task['end']) < 3*60*60:
                 alarm_hub.cancel_task(task['id'])
 
     def start(self):
@@ -80,11 +86,14 @@ class TradingExtension:
 
     def on_login_success(self):
         self.status = 'success'
+        if accld.jywg:
+            return
         accld.jywg = self.jywg
         acc = Config.account()
         fha = Config.data_service()
-        bearer = base64.b64encode(f"{fha['uemail']}:{Config.simple_decrypt(fha['pwd'])}".encode()).decode()
-        fha['headers'] = {'Authorization': f'Basic {bearer}'}
+        if 'pwd' in fha:
+            bearer = base64.b64encode(f"{fha['uemail']}:{Config.simple_decrypt(fha['pwd'])}".encode()).decode()
+            fha['headers'] = {'Authorization': f'Basic {bearer}'}
         accld.enable_credit = acc['credit']
         accld.fha = fha
         accld.load_accounts()
@@ -158,10 +167,6 @@ class TradingExtension:
 
     def handleAccountStocks(self, account='normal'):
         # 获取账户股票信息
-        if not self.running:
-            logger.warning("Trading system is not running")
-            return {"error": "Trading system is not running", "stocks": []}
-
         if account not in accld.all_accounts:
             logger.error(f"Invalid account: {account}")
             return {"error": f"Invalid account: {account}", "stocks": []}
@@ -180,23 +185,28 @@ class TradingExtension:
             return {"account": account, "stocks": stocks}
         except Exception as e:
             logger.error(f"Error getting stocks for account {account}: {str(e)}")
+            logger.debug(format_exc())
             return {"error": str(e), "stocks": []}
 
     def handleAccountDeals(self, account='normal'):
         # 获取账户当日交易记录
         if not self.running:
             logger.warning("Trading system is not running")
-            return {"error": "Trading system is not running", "deals": []}
+            if accld.all_accounts[account].today_deals:
+                return {"account": account, "deals": accld.all_accounts[account].today_deals}
+            return {"account": account, "deals": []}
 
         if account not in accld.all_accounts:
             logger.error(f"Invalid account: {account}")
             return {"error": f"Invalid account: {account}", "deals": []}
 
         try:
-            deals = accld.all_accounts[account].get_orders()
+            deals = accld.all_accounts[account].check_orders()
+            accld.all_accounts[account].today_deals = deals
             return {"account": account, "deals": deals}
         except Exception as e:
             logger.error(f"Error getting deals for account {account}: {str(e)}")
+            logger.debug(format_exc())
             return {"error": str(e), "deals": []}
 
 
@@ -223,6 +233,7 @@ async def status():
         return ext.handleStatus()
     except Exception as e:
         logger.error(f"Error getting status: {str(e)}")
+        logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/start")
@@ -232,6 +243,7 @@ async def start():
         return ext.handleStart()
     except Exception as e:
         logger.error(f"Error starting system: {str(e)}")
+        logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 class TradeRequest(BaseModel):
@@ -252,6 +264,7 @@ async def trade(request: TradeRequest):
             raise HTTPException(status_code=400, detail="Trade execution failed")
     except Exception as e:
         logger.error(f"Trade error: {str(e)}")
+        logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/stocks")
@@ -261,6 +274,7 @@ async def stocks(account: str = Query('normal', description="账户类型: norma
         return ext.handleAccountStocks(account)
     except Exception as e:
         logger.error(f"Error in /stocks endpoint: {str(e)}")
+        logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/deals")
@@ -270,6 +284,7 @@ async def deals(account: str = Query('normal', description="账户类型: normal
         return ext.handleAccountDeals(account)
     except Exception as e:
         logger.error(f"Error in /deals endpoint: {str(e)}")
+        logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/iunstrs")
@@ -279,6 +294,7 @@ async def iunstrs():
         return tconfig.get('iunstrs', {})
     except Exception as e:
         logger.error(f"Error getting iunstrs: {str(e)}")
+        logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/rzrq")
@@ -294,12 +310,12 @@ async def rzrq(code: str = Query(..., description="股票代码，必填")):
         return accld.check_rzrq(code)
     except Exception as e:
         logger.error(f"Error checking rzrq for code {code}: {str(e)}")
+        logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 def start_server():
     # 设置定时任务
-    if is_today_trading_day():
-        ext.schedule()
+    ext.schedule()
 
     # 启动服务器 - 禁用uvicorn的默认日志配置，使用我们的自定义logger
     uvicorn.run(

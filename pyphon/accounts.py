@@ -1,21 +1,21 @@
-import logging
 import json
 import requests
+from traceback import format_exc
 from datetime import datetime, timedelta
 from misc import get_rt_price, join_url, get_mkt_code, calc_buy_count, delay_seconds
-from log import logger
+from lofig import logger
 
 
 class Account():
     def __init__(self):
         self.keyword = None
         self.stocks = []
-        # {'code': '600475', 'name': '', 'holdCount': 0, 'availableCount': 0, 'strategies': {'holdCost': 14.76, 'holdCount': 100.0, 'strategies': {'grptype': 'GroupStandard', 'strategies': {'0': {'key': 'StrategyBSBE', 'enabled': True, 'guardPrice': 19, 'selltype': 'xsingle', 'disable_sell': False}}, 'transfers': {'0': {'transfer': -1}}, 'amount': 2000, 'buydetail': [{'id': 1055, 'code': 'SH600475', 'date': '2025-07-11', 'count': 100, 'price': 19.14, 'sid': '68879', 'type': 'B'}], 'buydetail_full': [{'id': 1115, 'code': 'SH600475', 'date': '2025-07-11', 'count': 100, 'price': 19.14, 'sid': '68879', 'type': 'B'}]}}}
         self.fundcode = '511880'
         self.hacc = None
         self.pure_assets = 0.0
         self.available_money = 0.0
         self.trading_records = []
+        self.today_deals = None
         self.buy_jylx = ''
         self.sell_jylx = ''
 
@@ -66,12 +66,16 @@ class Account():
         self.extend_buydetail(stock['buydetail_full'], exdetail)
 
     def load_watchings(self):
+        if not accld.fha or not accld.fha.get('headers', None):
+            logger.warning('loadWatchings no fha server configured')
+            return
+
         wurl = join_url(accld.fha['server'], 'stock?act=watchings&acc=' + self.keyword)
         r = requests.get(wurl, headers=accld.fha['headers'])
         r.raise_for_status()
         watchings = r.json()
         if not watchings:
-            logger.info(self.keyword, 'loadWatchings no watchings')
+            logger.info('%s loadWatchings no watchings', self.keyword)
             return
 
         for code, stk in watchings.items():
@@ -110,8 +114,9 @@ class Account():
                 self.extend_buydetail(stock['buydetail_full'], strgrp['buydetail_full'])
             return
 
+        count = sum([b['count'] for b in strgrp.get('buydetail', [])])
         self.stocks.append({
-            'code': code, 'name': '', 'holdCount': 0, 'availableCount': 0,
+            'code': code, 'name': '', 'holdCount': count, 'availableCount': count,
             'strategies': strgrp, 'buydetail': strgrp.get('buydetail', []),
             'buydetail_full': strgrp.get('buydetail_full', [])
         })
@@ -142,6 +147,7 @@ class Account():
                     has_more_data = False
         except Exception as e:
             logger.error('查询订单失败: %s', str(e))
+            logger.debug(format_exc())
         finally:
             return orders
 
@@ -177,12 +183,16 @@ class Account():
             status = d.get('Wtzt', None)
             bstype = self.tradeType_from_Mmsm(mmsm)
             if (status in ['已成', '已撤', '废单', '部撤'] or (status in ['部成'] and delay_seconds('15:00') < 0)) and bstype:
+                count = int(d.get('Cjsl', 0))
+                if count == 0:
+                    logger.info('%s ignore deal %s %s', self.keyword, mmsm, d.get('Zqmc', ''))
+                    continue
                 if code not in sdeals:
                     sdeals[code] = []
                 sdeals[code].append({
                     'code': code,
-                    'price': d.get('Cjjg', 0),
-                    'count': d.get('Cjsl', 0),
+                    'price': float(d.get('Cjjg', 0)),
+                    'count': count,
                     'sid': d.get('Wtbh', None),
                     'type': bstype,
                     'date': date
@@ -249,10 +259,18 @@ class Account():
         self._upload_deals(updeals)
 
     def _upload_deals(self, deals, max_retry=3):
-        if len(deals) == 0 or not accld.fha:
+        if len(deals) == 0:
             return
 
-        deals = [{**{k:v for k,v in d.items()}, 'code': get_mkt_code(d['code']) + d['code'] }  for d in deals]
+        if not accld.fha or not accld.fha.get('headers', None):
+            logger.warning('uploadDeals no fha server configured')
+            return
+
+        deals = [{
+            **{k:v for k,v in d.items() if k != 'type'},
+            'code': get_mkt_code(d['code']) + d['code'],
+            'tradeType': d['type']
+        }  for d in deals]
 
         url = join_url(accld.fha['server'], 'stock')
         data = {
@@ -273,6 +291,7 @@ class Account():
                     logger.error('%s uploadDeals failed: %s', self.keyword, r.text)
             except Exception as e:
                 logger.error('%s uploadDeals error (try %d): %s', self.keyword, retry + 1, e)
+                logger.debug(format_exc())
             retry += 1
         logger.error('%s uploadDeals failed after %d retries', self.keyword, max_retry)
 
@@ -340,18 +359,18 @@ class Account():
                 continue
 
             dltime = self.get_deal_time(deali['Cjrq'], deali['Cjsj'])
-            count = deali.get('Cjsl', 0)
+            count = int(deali.get('Cjsl', 0))
             if count == 0:
                 logger.info('invalid count %s', deali)
                 continue
 
             fetchedDeals.append({
                 'time': dltime, 'sid': deali.get('Wtbh', ''), 'code': code, 'tradeType': tradeType,
-                'price': deali.get('Cjjg', 0), 'count': count, 'fee': deali.get('Sxf', 0),
-                'feeYh': deali.get('Yhs', 0), 'feeGh': deali.get('Ghf', 0)
+                'price': float(deali.get('Cjjg', 0)), 'count': count, 'fee': float(deali.get('Sxf', 0)),
+                'feeYh': float(deali.get('Yhs', 0)), 'feeGh': float(deali.get('Ghf', 0))
             })
 
-        self._upload_deals(reversed(fetchedDeals))
+        self._upload_deals(fetchedDeals)
 
     def merge_cum_deals(self, deals):
         # 合并时间相同的融资利息
@@ -405,19 +424,19 @@ class Account():
             if sm == '红利入账' and dltime.endswith('0:0'):
                 dltime = self.get_deal_time(deali['Fsrq'] if 'Fsrq' in deali and deali['Fsrq'] != '0' else deali['Ywrq'], '150000')
 
-            count = deali.get('Cjsl', 0)
-            price = deali.get('Cjjg', 0)
+            count = int(deali.get('Cjsl', 0))
+            price = float(deali.get('Cjjg', 0))
             if sm in fsjeSm:
                 count = 1
-                price = deali['Fsje']
+                price = float(deali['Fsje'])
 
             sid = deali.get('Htbh', '')
             if sm == '配股入帐' and sid == '':
                 continue
 
             drec = {
-                    'time': dltime, 'sid': sid, 'code': code, 'tradeType': tradeType, 'price': price,
-                    'count': count, 'feeYh': deali.get('Yhs', 0), 'feeGh': deali.get('Ghf', 0)
+                    'time': dltime, 'sid': sid, 'code': code, 'tradeType': tradeType, 'price': price, 'count': count,
+                    'fee': float(deali.get('Sxf', 0)), 'feeYh': float(deali.get('Yhs', 0)), 'feeGh': float(deali.get('Ghf', 0))
                 }
             if tradeType == '融资利息':
                 dealsTobeCum.append(drec)
@@ -428,7 +447,7 @@ class Account():
             ndeals = self.merge_cum_deals(dealsTobeCum)
             fetchedDeals.extend(ndeals)
 
-        self._upload_deals(reversed(fetchedDeals))
+        self._upload_deals(fetchedDeals)
 
     def buy_fund_before_close(self):
         pass
@@ -449,8 +468,8 @@ class Account():
         available_count = int(position.get('Kysl', 0))
         if hold_count - available_count != 0 and datetime.now().hour >= 15:
             available_count = hold_count
-        hold_cost = position.get('Cbjg')
-        latest_price = position.get('Zxjg')
+        hold_cost = float(position.get('Cbjg'))
+        latest_price = float(position.get('Zxjg'))
         return {
             'code': code,
             'name': name,
@@ -558,6 +577,7 @@ class Account():
             })
         except Exception as e:
             logger.error('submit trade error: %s, %s, %s', code, bstype, e)
+            logger.debug(format_exc())
 
 
 class NormalAccount(Account):
@@ -595,6 +615,7 @@ class NormalAccount(Account):
         except Exception as e:
             logger.error(r.text)
             logger.error(e)
+            logger.debug(format_exc())
             return None, None
 
     def get_assets(self):
@@ -682,6 +703,7 @@ class CollateralAccount(Account):
         except Exception as e:
             logger.error(r.text)
             logger.error(e)
+            logger.debug(format_exc())
             return None
 
     def on_assets_loaded(self, assets):
@@ -702,6 +724,7 @@ class CollateralAccount(Account):
         except Exception as e:
             logger.error(r.text)
             logger.error(e)
+            logger.debug(format_exc())
             return None
 
     def get_count_form_data(self, code, price, tradeType):
@@ -796,19 +819,19 @@ class TrackingAccount(Account):
         stk = self.get_stock(code)
         if not stk:
             if bstype == 'S':
-                logger.error(self.keyword, 'sell stock not found: %s', code)
+                logger.error('sell stock not found: %s %s', self.keyword, code)
                 return
             self.add_watch_stock(code, {})
             stk = self.get_stock(code)
 
         rec = next((x for x in self.trading_records if x['code'] == code and x['type'] == bstype and x['price'] == price and x['count'] == count), None)
         if rec:
-            logger.error(self.keyword, 'duplicate trade record: %s %s %s %s', code, bstype, price, count)
+            logger.error('duplicate trade record: %s %s %s %s %s', self.keyword, code, bstype, price, count)
             return
 
         if bstype == 'S':
             if stk['holdCount'] < count:
-                logger.error(self.keyword, 'sell count more than hold count: %s', code)
+                logger.error('%s sell count more than hold count: %s', self.keyword, code)
                 return
             stk['holdCount'] -= count
         else:
@@ -850,6 +873,10 @@ class accld:
 
     @classmethod
     def init_track_accounts(self):
+        if not self.fha or not self.fha.get('headers', None):
+            logger.warning('fha not fully configured')
+            return
+
         url = join_url(self.fha['server'], 'userbind?onlystock=1')
         r = requests.get(url, headers=self.fha['headers'])
         r.raise_for_status()
@@ -912,6 +939,7 @@ class accld:
             return robj['Status'] != -1
         except Exception as e:
             logger.error('check rzrq error: %s', e)
+            logger.debug(format_exc())
             return False
 
     @classmethod
@@ -967,6 +995,7 @@ class accld:
                 logger.info(json.dumps(robj))
         except Exception as error:
             logger.error('Error in buyNewStocks: %s', error)
+            logger.debug(format_exc())
 
     @classmethod
     def buy_new_bonds(self):
@@ -1025,6 +1054,7 @@ class accld:
                 logger.info('no new bonds: %s', json.dumps(robj))
         except Exception as error:
             logger.error('Error in buyNewBonds: %s', error)
+            logger.debug(format_exc())
 
     @classmethod
     def buy_bond_repurchase(self, code):
@@ -1036,14 +1066,12 @@ class accld:
 
         try:
             price_data = get_rt_price(code)
-            price = price_data['price']
-            price = price_data['bottom_price'] if price_data['buysells']['buy5'] == '-' else price_data['buysells']['buy5']
 
             # 获取可操作数量
             amount_url = join_url(jywg.jywg, f'/Com/GetCanOperateAmount?validatekey={jywg.validate_key}')
             amount_data = {
                 'stockCode': code,
-                'price': str(price),
+                'price': str(price_data['price']),
                 'tradeType': '0S'
             }
 
@@ -1054,11 +1082,13 @@ class accld:
             if (amount_result.get('Status') != 0 or
                 not amount_result.get('Data') or
                 len(amount_result['Data']) == 0 or
-                amount_result['Data'][0].get('Kczsl', 0) <= 0):
+                float(amount_result['Data'][0].get('Kczsl', 0)) <= 0):
                 logger.info('No enough funds to repurchase: %s', json.dumps(amount_result))
                 return
 
-            count = amount_result['Data'][0]['Kczsl']
+            price = price_data['price']
+            price = price_data['bid5'] if price_data['bid5'] > 0 else price_data['bottom_price']
+            count = float(amount_result['Data'][0]['Kczsl'])
 
             # 进行国债逆回购交易
             repurchase_url = join_url(jywg.jywg, f'/BondRepurchase/SecuritiesLendingRepurchaseTrade?validatekey={jywg.validate_key}')
@@ -1080,7 +1110,8 @@ class accld:
             else:
                 logger.info('Repurchase failed: %s', json.dumps(repurchase_result))
         except Exception as error:
-            logger.info('Error in bond repurchase process: %s', error)
+            logger.error('Error in bond repurchase process: %s', error)
+            logger.debug(format_exc())
 
     @classmethod
     def repay_margin_loan(self):
@@ -1104,10 +1135,17 @@ class accld:
                 return
 
             assets_data_obj = assets_result['Data']
+            logger.debug('获取融资融券资产信息: %s', assets_result)
+            for k,v in assets_data_obj.items():
+                try:
+                    assets_data_obj[k] = float(v)
+                except Exception as e:
+                    assets_data_obj[k] = v
+            logger.debug('获取融资融券资产信息: %s', assets_data_obj)
 
             # 计算待还款金额
-            total = -(-assets_data_obj.get('Rzfzhj', 0) - assets_data_obj.get('Rqxf', 0))
-            if total <= 0 or assets_data_obj.get('Zjkys', 0) - 1 < 0:
+            total = float(assets_data_obj.get('Rzfzhj', 0)) + float(assets_data_obj.get('Rqxf', 0))
+            if total <= 0 or float(assets_data_obj.get('Zjkys', 0)) - 1 < 0:
                 logger.info('待还款金额: %s 可用金额: %s', total, assets_data_obj.get('Zjkys', 0))
                 return
 
@@ -1149,7 +1187,8 @@ class accld:
             else:
                 logger.info('Repayment failed: %s', repayment_result)
         except Exception as error:
-            logger.info('Repayment process failed: %s', error)
+            logger.error('Repayment process failed: %s', error)
+            logger.debug(format_exc())
 
     @classmethod
     def buy_stock(self, code, price, count, account, strategies=None):

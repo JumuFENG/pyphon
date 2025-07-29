@@ -40,8 +40,8 @@ class TestNormalAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '证券买入',
                 'Wtzt': '已成',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             },
@@ -49,8 +49,8 @@ class TestNormalAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '000001',
                 'Mmsm': '证券卖出',
                 'Wtzt': '已撤',
-                'Cjjg': 10.80,
-                'Cjsl': 200,
+                'Cjjg': '10.80',
+                'Cjsl': '200',
                 'Wtbh': 'ORDER002',
                 'Zqmc': '平安银行'
             }
@@ -94,8 +94,8 @@ class TestNormalAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '证券买入',
                 'Wtzt': '部成',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             }
@@ -118,8 +118,8 @@ class TestNormalAccountCheckOrders(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '担保品划入',
                 'Wtzt': '已确认',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             }
@@ -268,12 +268,12 @@ class TestNormalAccountLoadHisDeals(unittest.TestCase):
                 'Zqdm': '600000',
                 'Cjrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 100,
-                'Cjjg': 12.50,
+                'Cjsl': '100',
+                'Cjjg': '12.50',
                 'Wtbh': 'ORDER001',
-                'Sxf': 5.0,
-                'Yhs': 1.0,
-                'Ghf': 2.0
+                'Sxf': '5.0',
+                'Yhs': '1.0',
+                'Ghf': '2.0'
             }
         ]
 
@@ -312,8 +312,8 @@ class TestNormalAccountLoadHisDeals(unittest.TestCase):
                 'Zqdm': '600000',
                 'Cjrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 100,
-                'Cjjg': 12.50,
+                'Cjsl': '100',
+                'Cjjg': '12.50',
                 'Wtbh': 'ORDER001'
             }
         ]
@@ -352,12 +352,12 @@ class TestNormalAccountLoadOtherDeals(unittest.TestCase):
                 'Cjsj': '000000',
                 'Fsrq': '20250115',
                 'Fssj': '150000',
-                'Cjsl': 1,
-                'Cjjg': 0,
-                'Fsje': 100.0,
+                'Cjsl': '1',
+                'Cjjg': '0',
+                'Fsje': '100.0',
                 'Htbh': 'DIV001',
-                'Yhs': 0,
-                'Ghf': 0
+                'Yhs': '0',
+                'Ghf': '0'
             }
         ]
 
@@ -387,8 +387,8 @@ class TestNormalAccountLoadOtherDeals(unittest.TestCase):
                 'Zqdm': '600000',
                 'Ywrq': '20250115',
                 'Cjsj': '143000',
-                'Cjsl': 100,
-                'Cjjg': 12.50,
+                'Cjsl': '100',
+                'Cjjg': '12.50',
                 'Htbh': 'IGN001'
             }
         ]
@@ -502,8 +502,8 @@ class TestCollateralAccountMethods(unittest.TestCase):
                 'Zqdm': '600000',
                 'Mmsm': '证券买入',
                 'Wtzt': '已成',
-                'Cjjg': 12.50,
-                'Cjsl': 100,
+                'Cjjg': '12.50',
+                'Cjsl': '100',
                 'Wtbh': 'ORDER001',
                 'Zqmc': '浦发银行'
             }

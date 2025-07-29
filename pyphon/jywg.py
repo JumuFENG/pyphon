@@ -3,13 +3,12 @@ import base64
 import random
 import requests
 import re
-from log import logger
 from functools import lru_cache, cached_property
 import importlib.util
 if importlib.util.find_spec("ddddocr"):
     from ddddocr import DdddOcr
-from config import Config
 from misc import join_url
+from lofig import logger, Config
 
 
 class jywg:
@@ -26,7 +25,7 @@ class jywg:
         self.margin_trade = credit
         self.basejs = None
         self.validate_key = None
-        self.mxretry = 3
+        self.mxretry = 5
 
     @lru_cache(maxsize=1)
     def load_page(self):
@@ -91,7 +90,13 @@ class jywg:
         match = reg.search(rsp.text)
         if match:
             return match.group(1).replace('\\n', '\n')
-        return "-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDHdsyxT66pDG4p73yope7jxA92\nc0AT4qIJ/xtbBcHkFPK77upnsfDTJiVEuQDH+MiMeb+XhCLNKZGp0yaUU6GlxZdp\n+nLW8b7Kmijr3iepaDhcbVTsYBWchaWUXauj9Lrhz58/6AE/NF0aMolxIGpsi+ST\n2hSHPu3GSXMdhPCkWQIDAQAB\n-----END PUBLIC KEY-----"
+
+        return (
+            "-----BEGIN PUBLIC KEY-----\n"
+            "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDHdsyxT66pDG4p73yope7jxA92\n"
+            "c0AT4qIJ/xtbBcHkFPK77upnsfDTJiVEuQDH+MiMeb+XhCLNKZGp0yaUU6GlxZdp\n"
+            "+nLW8b7Kmijr3iepaDhcbVTsYBWchaWUXauj9Lrhz58/6AE/NF0aMolxIGpsi+ST\n"
+            "2hSHPu3GSXMdhPCkWQIDAQAB\n-----END PUBLIC KEY-----")
 
     def encrypted_pwd(self):
         pub_key = rsa.PublicKey.load_pkcs1_openssl_pem(self.public_key.encode('utf-8'))
