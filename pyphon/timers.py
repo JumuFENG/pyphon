@@ -1,6 +1,7 @@
 import random
 from time import sleep
 from threading import Timer
+from traceback import format_exc
 from lofig import logger
 from accounts import accld
 from misc import delay_seconds
@@ -39,9 +40,13 @@ class alarm_hub:
         short_seconds_wait = 600
         waiting_ids = []
         while True:
-            accld.normal_account.check_orders()
-            if accld.collateral_account:
-                accld.collateral_account.check_orders()
+            try:
+                accld.normal_account.check_orders()
+                if accld.collateral_account:
+                    accld.collateral_account.check_orders()
+            except Exception as e:
+                logger.error(e)
+                logger.debug(format_exc())
 
             if delay_seconds('14:55') < 0:
                 break
@@ -91,8 +96,7 @@ class alarm_hub:
 
         # 保存当日交易数据
         for acc in accld.all_accounts.values():
-            deals = acc.load_deals()
-            acc.archive_deals(deals)
+            acc.load_deals()
 
         # 更新状态
         if callable(self.on_trade_closed):

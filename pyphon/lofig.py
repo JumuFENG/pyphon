@@ -6,18 +6,6 @@ import base64
 import random
 from functools import lru_cache
 
-lg_path = os.path.join(os.path.dirname(__file__), '../logs/emtrader.log')
-if not os.path.isdir(os.path.dirname(lg_path)):
-    os.mkdir(os.path.dirname(lg_path))
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(levelname)s | %(asctime)s-%(filename)s@%(lineno)d<%(name)s> %(message)s',
-    handlers=[logging.FileHandler(lg_path), logging.StreamHandler(sys.stdout)],
-    force=True
-)
-
-logger: logging.Logger = logging.getLogger('pyphon')
-
 
 class Config:
     @classmethod
@@ -40,6 +28,7 @@ class Config:
                     "credit": False
                 },
                 "client": {
+                    "log_level": "INFO",
                     "purchase_new_stocks": True,
                     "port": 5888,
                     "iunstrs": {
@@ -97,3 +86,22 @@ class Config:
     @classmethod
     def trade_config(self):
         return self.all_configs()['client']
+
+    @classmethod
+    def log_level(self):
+        lvl = self.all_configs()['client'].get("log_level", "INFO").upper()
+        return logging._nameToLevel[lvl]
+
+
+lg_path = os.path.join(os.path.dirname(__file__), '../logs/emtrader.log')
+if not os.path.isdir(os.path.dirname(lg_path)):
+    os.mkdir(os.path.dirname(lg_path))
+logging.basicConfig(
+    level=Config.log_level(),
+    format='%(levelname)s | %(asctime)s-%(filename)s@%(lineno)d<%(name)s> %(message)s',
+    handlers=[logging.FileHandler(lg_path), logging.StreamHandler(sys.stdout)],
+    force=True
+)
+
+logger: logging.Logger = logging.getLogger('pyphon')
+

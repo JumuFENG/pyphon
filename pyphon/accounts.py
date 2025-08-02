@@ -114,7 +114,7 @@ class Account():
                 self.extend_buydetail(stock['buydetail_full'], strgrp['buydetail_full'])
             return
 
-        count = sum([b['count'] for b in strgrp.get('buydetail', [])])
+        count = sum([int(b['count']) for b in strgrp.get('buydetail', [])])
         self.stocks.append({
             'code': code, 'name': '', 'holdCount': count, 'availableCount': count,
             'strategies': strgrp, 'buydetail': strgrp.get('buydetail', []),
@@ -173,6 +173,32 @@ class Account():
         if Mmsm in buys:
             return 'B'
 
+    @staticmethod
+    def deals_to_buydetail(deals):
+        return [
+            {
+                'code': deal['code'],
+                'type': deal['tradeType'],
+                'price': float(deal['price']),
+                'count': int(deal['count']),
+                'date': deal['time'],
+                'sid': deal['sid']
+            } for deal in deals
+        ]
+
+    @staticmethod
+    def buydetails_to_deals(buydetails):
+        return [
+            {
+                'code': buydetail['code'],
+                'tradeType': buydetail['type'],
+                'price': buydetail['price'],
+                'count': buydetail['count'],
+                'time': buydetail['date'],
+                'sid': buydetail['sid']
+            } for buydetail in buydetails
+        ]
+
     def check_orders(self):
         data = self.get_orders()
         date = datetime.now().strftime('%Y-%m-%d')
@@ -194,10 +220,10 @@ class Account():
                     'price': float(d.get('Cjjg', 0)),
                     'count': count,
                     'sid': d.get('Wtbh', None),
-                    'type': bstype,
-                    'date': date
+                    'tradeType': bstype,
+                    'time': date
                 })
-                record = next((x for x in self.trading_records if x['code'] == code and x['type'] == bstype and x['sid'] == d.get('Wtbh', None)), None)
+                record = next((x for x in self.trading_records if x['code'] == code and x['tradeType'] == bstype and x['sid'] == d.get('Wtbh', None)), None)
                 if record:
                     self.trading_records.remove(record)
             elif status in ['已报'] and mmsm in ['配售申购']:
@@ -213,15 +239,15 @@ class Account():
                 logger.info('%s unknown deal type/status: %s', self.keyword, d)
 
         for code, deals in sdeals.items():
-            self.extend_stock_buydetail(code, deals)
+            self.extend_stock_buydetail(code, self.deals_to_buydetail(deals))
 
         return sdeals
 
-    def archive_deals(self, deals):
-        if not deals:
+    def archive_deals(self, codes):
+        if not codes:
             return
 
-        for c in deals:
+        for c in codes:
             stk = self.get_stock(c)
             if stk:
                 buydetail = stk.get('buydetail', [])
@@ -245,13 +271,13 @@ class Account():
                     logger.error('sell count not archived %s %s', c, buydetail)
                     continue
                 stk['buydetail'] = [b for b in buyrecs if b['count'] > 0]
-                stk['holdCount'] += sum([b['count'] for b in stk['buydetail']])
-                stk['availableCount'] += sum([b['count'] for b in stk['buydetail']])
+                stk['holdCount'] = sum([b['count'] for b in stk['buydetail']])
+                stk['availableCount'] = stk['holdCount']
 
     def load_deals(self):
         # 查询当日订单，并将当日成交记录上传
         deals = self.check_orders()
-        self.archive_deals(deals)
+        self.archive_deals(deals.keys())
 
         updeals = []
         for c,d in deals.items():
@@ -267,9 +293,8 @@ class Account():
             return
 
         deals = [{
-            **{k:v for k,v in d.items() if k != 'type'},
-            'code': get_mkt_code(d['code']) + d['code'],
-            'tradeType': d['type']
+            **{k:v for k,v in d.items() if k != 'code'},
+            'code': get_mkt_code(d['code']) + d['code']
         }  for d in deals]
 
         url = join_url(accld.fha['server'], 'stock')
@@ -469,7 +494,7 @@ class Account():
         if hold_count - available_count != 0 and datetime.now().hour >= 15:
             available_count = hold_count
         hold_cost = float(position.get('Cbjg'))
-        latest_price = float(position.get('Zxjg'))
+        latest_price = float(position.get('Zxjg')) if 'Zxjg' in position else hold_cost
         return {
             'code': code,
             'name': name,
@@ -556,7 +581,7 @@ class Account():
             if count > 1:
                 final_count = 100 * (acount // 100 / count)
             if final_count < 100:
-                logger.error('invalid count: %d, available count: %s', final_count, acount)
+                logger.error('invalid count: %d, available count: %s, count: %s', final_count, acount, count)
                 return
 
         data = self.get_form_data(code, price, final_count, bstype)
@@ -573,7 +598,7 @@ class Account():
                 self.available_money += price * final_count
             dltime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self.hold_account.trading_records.append({
-                'code': code, 'price': price, 'count': count, 'sid': robj['Data'][0]['Wtbh'], 'type': bstype, 'time': dltime
+                'code': code, 'price': price, 'count': count, 'sid': robj['Data'][0]['Wtbh'], 'tradeType': bstype, 'time': dltime
             })
         except Exception as e:
             logger.error('submit trade error: %s, %s, %s', code, bstype, e)
@@ -803,13 +828,10 @@ class TrackingAccount(Account):
                 continue
             if code not in sdeals:
                 sdeals[code] = []
-            sdeals[code].append({**{
-                k: v for k,v in d.items() if k != 'time'
-            }, 'date': d['time']
-            })
+            sdeals[code].append({**{k: v for k,v in d.items()}})
 
         for code, deals in sdeals.items():
-            self.extend_stock_buydetail(code, deals)
+            self.extend_stock_buydetail(code, self.deals_to_buydetail(deals))
 
         return sdeals
 
@@ -824,7 +846,7 @@ class TrackingAccount(Account):
             self.add_watch_stock(code, {})
             stk = self.get_stock(code)
 
-        rec = next((x for x in self.trading_records if x['code'] == code and x['type'] == bstype and x['price'] == price and x['count'] == count), None)
+        rec = next((x for x in self.trading_records if x['code'] == code and x['traeType'] == bstype and x['price'] == price and x['count'] == count), None)
         if rec:
             logger.error('duplicate trade record: %s %s %s %s %s', self.keyword, code, bstype, price, count)
             return
@@ -843,7 +865,7 @@ class TrackingAccount(Account):
             'count': count,
             'time': time,
             'sid': self.sid,
-            'type': bstype,
+            'tradeType': bstype,
         })
         self.sid += 1
 
@@ -960,7 +982,7 @@ class accld:
                 # 过滤符合条件的新股
                 filtered_stocks = [
                     stk for stk in robj['NewStockList']
-                    if stk['Fxj'] - 100 < 0 and stk['Ksgsx'] > 0
+                    if float(stk['Fxj']) < 100 and int(stk['Ksgsx']) > 0
                 ]
 
                 data = [
@@ -1134,33 +1156,30 @@ class accld:
                 logger.info('Failed to fetch assets: %s', assets_result)
                 return
 
-            assets_data_obj = assets_result['Data']
-            logger.debug('获取融资融券资产信息: %s', assets_result)
-            for k,v in assets_data_obj.items():
+            assets_data = assets_result['Data']
+            for k,v in assets_data.items():
                 try:
-                    assets_data_obj[k] = float(v)
+                    assets_data[k] = float(v)
                 except Exception as e:
-                    assets_data_obj[k] = v
-            logger.debug('获取融资融券资产信息: %s', assets_data_obj)
+                    assets_data[k] = v
+            logger.debug('获取融资融券资产信息: %s', assets_data)
 
             # 计算待还款金额
-            total = float(assets_data_obj.get('Rzfzhj', 0)) + float(assets_data_obj.get('Rqxf', 0))
-            if total <= 0 or float(assets_data_obj.get('Zjkys', 0)) - 1 < 0:
-                logger.info('待还款金额: %s 可用金额: %s', total, assets_data_obj.get('Zjkys', 0))
+            total = assets_data['Rzfzhj'] + assets_data['Rqxf']
+            zjkys = assets_data['Zjkys']
+            if total <= 0 or zjkys < 1:
+                logger.info('待还款金额: %s 可用金额: %s', total, zjkys)
                 return
 
             pay_amount = total
-            if total - assets_data_obj.get('Zjkys', 0) > 0.1:
+            if total - zjkys > 0.15:
                 date_val = datetime.now().day
                 if date_val > 25 or date_val < 5:
-                    pay_amount = (assets_data_obj.get('Zjkys', 0) -
-                                assets_data_obj.get('Rzxf', 0) -
-                                assets_data_obj.get('Rqxf', 0) -
-                                assets_data_obj.get('Rzxf', 0))
+                    pay_amount = zjkys - assets_data['Rzxf'] - assets_data['Rqxf'] - assets_data['Rzxf']
                 else:
-                    pay_amount = round(assets_data_obj.get('Zjkys', 0) - 0.11, 2)
+                    pay_amount = assets_data['Zjkys'] - 0.2
 
-            pay_amount = float(pay_amount)
+            pay_amount = round(pay_amount, 2)
             if pay_amount <= 0:
                 logger.info('Invalid repayment amount: %s', pay_amount)
                 return
@@ -1201,7 +1220,7 @@ class accld:
 
         if count == 0:
             stk = self.all_accounts[account].hold_account.get_stock(code)
-            if not stk or ['strategies'] not in stk:
+            if not stk or 'strategies' not in stk:
                 logger.error('no count set and no strategy to calc count %s %s %s %s %s %s', account, code, price, count, strategies, stk)
                 return
 
@@ -1235,15 +1254,19 @@ class accld:
         """处理担保品划入/划出订单"""
         code = order.get('Wtjg', '').replace('.', '')
         date = datetime.now().strftime('%Y-%m-%d')
-        price = order.get('Cjjg', 0)
-        count = order.get('Cjsl', 0)
+        price = float(order.get('Cjjg', 0))
+        count = int(order.get('Cjsl', 0))
         sid = order.get('Wtbh', '')
-        sdeal = { 'code': code, 'price': price, 'count': count, 'sid': sid, 'type': 'S', 'date': date }
-        bdeal = { 'code': code, 'price': price, 'count': count, 'sid': sid, 'type': 'B', 'date': date }
+        sdetail = { 'code': code, 'price': price, 'count': count, 'sid': sid, 'type': 'S', 'date': date }
+        bdetail = { 'code': code, 'price': price, 'count': count, 'sid': sid, 'type': 'B', 'date': date }
         tradeType = order.get('Mmsm', '')
         if tradeType == "担保品划出":
-            self.normal_account.extend_stock_buydetail(code, [bdeal])
-            self.collateral_account.extend_stock_buydetail(code, [sdeal])
+            self.normal_account.extend_stock_buydetail(code, [bdetail])
+            self.normal_account._upload_deals(Account.buydetails_to_deals([bdetail]))
+            self.collateral_account.extend_stock_buydetail(code, [sdetail])
+            self.collateral_account._upload_deals(Account.buydetails_to_deals([sdetail]))
         elif tradeType == "担保品划入":
-            self.normal_account.extend_stock_buydetail(code, [sdeal])
-            self.collateral_account.extend_stock_buydetail(code, [bdeal])
+            self.normal_account.extend_stock_buydetail(code, [sdetail])
+            self.normal_account._upload_deals(Account.buydetails_to_deals([sdetail]))
+            self.collateral_account.extend_stock_buydetail(code, [bdetail])
+            self.collateral_account._upload_deals(Account.buydetails_to_deals([bdetail]))

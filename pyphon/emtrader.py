@@ -109,10 +109,10 @@ class TradingExtension:
     def on_trade_closed(self):
         self.running = False
         self.status = "closed"
-        logger.info("交易系统已关闭")
+        logger.info("已收盘")
 
     def handleStatus(self):
-        # 返回交易系统状态
+        # 返回交易状态
         return {
             "running": self.running,
             "status": self.status if self.status else ("running" if self.running else "stopped"),
@@ -258,12 +258,12 @@ class TradeRequest(BaseModel):
 @app.post("/trade")
 async def trade(request: TradeRequest):
     try:
-        if ext.handleTrade(request.dict()):
+        if ext.handleTrade(request.model_dump()):
             return {"status": "success", "message": "Trade executed successfully"}
         else:
             raise HTTPException(status_code=400, detail="Trade execution failed")
     except Exception as e:
-        logger.error(f"Trade error: {str(e)}")
+        logger.error("Trade error: %s %s", e, request.model_dump())
         logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
