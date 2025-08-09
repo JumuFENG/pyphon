@@ -846,7 +846,7 @@ class TrackingAccount(Account):
             self.add_watch_stock(code, {})
             stk = self.get_stock(code)
 
-        rec = next((x for x in self.trading_records if x['code'] == code and x['traeType'] == bstype and x['price'] == price and x['count'] == count), None)
+        rec = next((x for x in self.trading_records if x['code'] == code and x['tradeType'] == bstype and x['price'] == price and x['count'] == count), None)
         if rec:
             logger.error('duplicate trade record: %s %s %s %s %s', self.keyword, code, bstype, price, count)
             return
@@ -1224,15 +1224,15 @@ class accld:
                 logger.error('no count set and no strategy to calc count %s %s %s %s %s %s', account, code, price, count, strategies, stk)
                 return
 
-            count = calc_buy_count(stk['strategies'].get('amount', 10000), price)
+            count = calc_buy_count(int(stk['strategies'].get('amount', 10000)), price)
             available_money = self.all_accounts[account].available_money
             if count * price > available_money:
-                count = calc_buy_count(calc_buy_count(available_money, price))
+                count = calc_buy_count(available_money, price)
                 if count * price > available_money:
                     count -= 100
 
         if count == 0:
-            logger.error('count is 0, check available money: %s', available_money)
+            logger.error('count is 0, check available money: %s %s', account, available_money)
 
         self.all_accounts[account].trade(code, price, count, 'B')
 
