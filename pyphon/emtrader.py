@@ -100,6 +100,7 @@ class TradingExtension:
         accld.normal_account.load_assets()
         if acc['credit']:
             accld.collateral_account.load_assets()
+            logger.info('load assets for collateral_account %s', accld.collateral_account.stocks)
         accld.init_track_accounts()
         # costDog.init()
         alarm_hub.purchase_new_stocks = tconfig['purchase_new_stocks']
@@ -192,8 +193,11 @@ class TradingExtension:
         # 获取账户当日交易记录
         if not self.running:
             logger.warning("Trading system is not running")
-            if accld.all_accounts[account].today_deals:
+            if account in accld.all_accounts and accld.all_accounts[account].today_deals:
                 return {"account": account, "deals": accld.all_accounts[account].today_deals}
+            return {"account": account, "deals": []}
+
+        if account == 'credit':
             return {"account": account, "deals": []}
 
         if account not in accld.all_accounts:
@@ -215,16 +219,23 @@ ext = TradingExtension()
 
 
 # 静态文件目录
-static_dir = os.path.join(os.path.dirname(__file__), 'web')
+web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'web')
+static_dir = os.path.join(web_dir, 'static')
+
+# 挂载静态文件
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+else:
+    logger.warning(f"Static directory not found: {static_dir}")
 
 @app.get("/")
 async def root():
-    index_path = os.path.join(static_dir, 'index.html')
+    index_path = os.path.join(web_dir, 'index.html')
     if os.path.exists(index_path):
         return FileResponse(index_path)
     return {"message": "Welcome to EMTrader API"}
+
+
 
 @app.get("/status")
 async def status():
@@ -312,6 +323,103 @@ async def rzrq(code: str = Query(..., description="股票代码，必填")):
         logger.error(f"Error checking rzrq for code {code}: {str(e)}")
         logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.get("/config")
+async def get_config():
+    """获取系统配置"""
+    try:
+        config_data = {
+            "fha": Config.data_service().copy(),
+            "unp": Config.account().copy(),
+            "client": Config.trade_config().copy(),
+            "iunstrs": tconfig.get('iunstrs', {})
+        }
+        return config_data
+    except Exception as e:
+        logger.error(f"Error getting config: {str(e)}")
+        logger.debug(format_exc())
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+class ConfigUpdateRequest(BaseModel):
+    section: str = Field(..., description="配置区块名称")
+    data: Dict[str, Any] = Field(..., description="配置数据")
+
+@app.post("/config")
+async def update_config(request: ConfigUpdateRequest):
+    """更新系统配置"""
+    try:
+        logger.info(f"Config update request: {request.section} - {request.data}")
+
+        # 获取当前配置
+        current_config = Config.all_configs()
+
+        # 根据section更新对应的配置
+        section_map = {
+            '数据服务配置': 'fha',
+            '账户配置': 'unp',
+            '客户端配置': 'client'
+        }
+
+        config_key = section_map.get(request.section)
+        if not config_key:
+            raise HTTPException(status_code=400, detail=f"Unknown config section: {request.section}")
+
+        # 更新配置数据
+        if config_key not in current_config:
+            current_config[config_key] = {}
+
+        for key, value in request.data.items():
+            # 处理密码字段加密
+            if key == 'pwd' and value and value.strip():
+                # 如果密码不为空且不是已加密的，则加密
+                if not value.startswith('*'):
+                    current_config[config_key][key] = Config.simple_encrypt(value)
+                else:
+                    current_config[config_key][key] = value
+            # 处理策略配置的特殊情况
+            elif key == 'iunstrs' and config_key == 'client':
+                # 直接替换整个iunstrs配置
+                current_config[config_key][key] = value
+            else:
+                current_config[config_key][key] = value
+
+        Config.save(current_config)
+
+        # 清除配置缓存，强制重新加载
+        Config.all_configs.cache_clear()
+
+        logger.info(f"Config section '{request.section}' updated successfully")
+        return {"status": "success", "message": f"配置区块 '{request.section}' 更新成功"}
+
+    except Exception as e:
+        logger.error(f"Error updating config: {str(e)}")
+        logger.debug(format_exc())
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.get("/assets")
+async def get_assets(account: str = Query('normal', description="账户类型")):
+    """获取账户资产信息"""
+    try:
+        if not ext.running:
+            return {"error": "Trading system is not running", "assets": {}}
+
+        if account not in accld.all_accounts:
+            return {"error": f"Invalid account: {account}", "assets": {}}
+
+        acc = accld.all_accounts[account]
+        assets = {
+            "pure_assets": acc.pure_assets,
+            "available_money": acc.available_money,
+            "account_type": account
+        }
+
+        return {"account": account, "assets": assets}
+    except Exception as e:
+        logger.error(f"Error getting assets for account {account}: {str(e)}")
+        logger.debug(format_exc())
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
 
 def start_server():
     # 设置定时任务

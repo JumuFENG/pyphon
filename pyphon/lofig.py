@@ -9,11 +9,17 @@ from functools import lru_cache
 
 class Config:
     @classmethod
+    @lru_cache(maxsize=1)
+    def _cfg_path(self):
+        cpth = os.path.join(os.path.dirname(__file__), '../config/config.json')
+        if not os.path.isdir(os.path.dirname(cpth)):
+            os.mkdir(os.path.dirname(cpth))
+        return cpth
+
+    @classmethod
     @lru_cache(maxsize=None)
     def all_configs(self):
-        cfg_path = os.path.join(os.path.dirname(__file__), '../config/config.json')
-        if not os.path.isdir(os.path.dirname(cfg_path)):
-            os.mkdir(os.path.dirname(cfg_path))
+        cfg_path = self._cfg_path()
         allconfigs = None
         if not os.path.isfile(cfg_path):
             allconfigs = {
@@ -35,7 +41,7 @@ class Config:
                     }
                 }
             }
-            self._save(cfg_path, allconfigs)
+            self.save(allconfigs)
             return allconfigs
 
         with open(cfg_path, 'r') as f:
@@ -49,12 +55,13 @@ class Config:
             allconfigs['fha']['pwd'] = self.simple_encrypt(allconfigs['fha']['pwd'])
             bsave = True
         if bsave:
-            self._save(cfg_path, allconfigs)
+            self.save(allconfigs)
 
         return allconfigs
 
     @classmethod
-    def _save(self, cfg_path, cfg):
+    def save(self, cfg):
+        cfg_path = self._cfg_path()
         with open(cfg_path, 'w') as f:
             json.dump(cfg, f, indent=4)
 

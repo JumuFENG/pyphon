@@ -43,14 +43,17 @@ class Account():
     @staticmethod
     def extend_buydetail(buydetail, exdetail):
         if not isinstance(buydetail, list):
-            return
+            return 0
         if not isinstance(exdetail, list):
-            return
+            return 0
+        cnt = 0
         for bd in exdetail:
             exbd = next((x for x in buydetail if x['sid'] == bd['sid'] and x['date'] == bd['date'] and x['type'] == bd['type']), None)
             if exbd:
                 continue
             buydetail.append(bd)
+            cnt += 1
+        return cnt
 
     def extend_stock_buydetail(self, code, exdetail):
         stock = self.get_stock(code)
@@ -58,12 +61,14 @@ class Account():
             self.add_watch_stock(code, {'buydetail': exdetail, 'buydetail_full': exdetail})
             return
 
+        if 'buydetail_full' not in stock:
+            stock['buydetail_full'] = []
+        ecnt = self.extend_buydetail(stock['buydetail_full'], exdetail)
+        if ecnt == 0:
+            return
         if 'buydetail' not in stock:
             stock['buydetail'] = []
         self.extend_buydetail(stock['buydetail'], exdetail)
-        if 'buydetail_full' not in stock:
-            stock['buydetail_full'] = []
-        self.extend_buydetail(stock['buydetail_full'], exdetail)
 
     def load_watchings(self):
         if not accld.fha or not accld.fha.get('headers', None):
@@ -486,6 +491,14 @@ class Account():
     def get_positions(self):
         pass
 
+    def load_assets(self):
+        s, p = self.get_assets_and_positions()
+        self.on_assets_loaded(s)
+        self.on_positions_loaded(p)
+
+    def on_assets_loaded(self, assets):
+        pass
+
     def parse_position(self, position):
         code = position.get('Zqdm')
         name = position.get('Zqmc')
@@ -504,16 +517,16 @@ class Account():
             'latestPrice': latest_price
         }
 
-    def load_assets(self):
-        s, p = self.get_assets_and_positions()
-        self.on_assets_loaded(s)
-        self.on_positions_loaded(p)
-
-    def on_assets_loaded(self, assets):
-        pass
-
     def on_positions_loaded(self, positions):
-        pass
+        if not positions:
+            return
+        for pos in positions:
+            stocki = self.parse_position(pos)
+            stock = self.get_stock(stocki['code'])
+            if stock:
+                stock.update(stocki)
+            else:
+                self.stocks.append(stocki)
 
     def get_count_form_data(self, code, price, tradeType):
         fd = {
@@ -653,17 +666,6 @@ class NormalAccount(Account):
 
     def get_positions(self):
         return self.get_assets_and_positions()[1]
-
-    def on_positions_loaded(self, positions):
-        if not positions:
-            return
-        for pos in positions:
-            stocki = self.parse_position(pos)
-            stock = self.get_stock(stocki['code'])
-            if stock:
-                stock.update(stocki)
-            else:
-                self.stocks.append(stocki)
 
     def get_count_form_data(self, code, price, tradeType):
         return super().get_count_form_data(code, price, tradeType)
@@ -811,7 +813,7 @@ class TrackingAccount(Account):
     def __init__(self, keyword):
         super().__init__()
         self.keyword = keyword
-        self.available_money = 0.0
+        self.available_money = 1e10
         self.sid = (int(datetime.now().strftime('%Y%m%d')) % 1000000) * 1000
 
     def load_his_deals(self, date):
@@ -1252,7 +1254,7 @@ class accld:
     @classmethod
     def create_deals_for_transfer(self, order):
         """处理担保品划入/划出订单"""
-        code = order.get('Wtjg', '').replace('.', '')
+        code = order.get('Zqdm', order.get('Wtjg', '').replace('.', ''))
         date = datetime.now().strftime('%Y-%m-%d')
         price = float(order.get('Cjjg', 0))
         count = int(order.get('Cjsl', 0))

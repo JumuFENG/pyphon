@@ -71,13 +71,13 @@ class TestNormalAccountCheckOrders(unittest.TestCase):
                 self.assertEqual(buy_deal['code'], '600000')
                 self.assertEqual(buy_deal['price'], 12.50)
                 self.assertEqual(buy_deal['count'], 100)
-                self.assertEqual(buy_deal['type'], 'B')
+                self.assertEqual(buy_deal['tradeType'], 'B')
                 self.assertEqual(buy_deal['sid'], 'ORDER001')
 
                 # 验证卖出订单
                 sell_deal = result['000001'][0]
                 self.assertEqual(sell_deal['code'], '000001')
-                self.assertEqual(sell_deal['type'], 'S')
+                self.assertEqual(sell_deal['tradeType'], 'S')
 
                 # 验证调用了extend_stock_buydetail
                 self.assertEqual(mock_extend.call_count, 2)
@@ -141,8 +141,7 @@ class TestNormalAccountArchiveDeals(unittest.TestCase):
 
     def setUp(self):
         self.account = NormalAccount()
-        self.account.stocks = [
-            {
+        self.account.stocks = [{
                 'code': '600000',
                 'name': '浦发银行',
                 'holdCount': 0,
@@ -152,16 +151,14 @@ class TestNormalAccountArchiveDeals(unittest.TestCase):
                     {'type': 'B', 'count': 200, 'price': 12.0, 'sid': 'BUY002'},
                     {'type': 'S', 'count': 150, 'price': 11.0, 'sid': 'SELL001'}
                 ]
-            }
-        ]
+            }]
 
     def test_archive_deals_normal_case(self):
         """测试正常的交易归档"""
-        deals = ['600000']
+        code = '600000'
+        self.account.archive_deals([code])
 
-        self.account.archive_deals(deals)
-
-        stock = self.account.get_stock('600000')
+        stock = self.account.get_stock(code)
         # 卖出150股，应该先匹配价格低的100股，再匹配50股从200股中
         # 剩余buydetail应该是150股价格12.0的
         self.assertEqual(len(stock['buydetail']), 1)
@@ -171,6 +168,24 @@ class TestNormalAccountArchiveDeals(unittest.TestCase):
         # holdCount和availableCount应该更新
         self.assertEqual(stock['holdCount'], 150)
         self.assertEqual(stock['availableCount'], 150)
+
+    def test_archive_deals_normal_case_bsequals(self):
+        """测试正常的交易归档"""
+        code = '600000'
+        stock = self.account.get_stock(code)
+        stock['buydetail'] = [
+            {'type': 'B', 'count': 100, 'price': 10.0, 'sid': 'BUY001'},
+            {'type': 'S', 'count': 100, 'price': 11.0, 'sid': 'SELL001'}  # 卖出超过买入
+        ]
+
+        self.account.archive_deals([code])
+
+        stock = self.account.get_stock('600000')
+        self.assertEqual(len(stock['buydetail']), 0)
+
+        # holdCount和availableCount应该更新
+        self.assertEqual(stock['holdCount'], 0)
+        self.assertEqual(stock['availableCount'], 0)
 
     def test_archive_deals_oversell(self):
         """测试卖出数量超过买入数量的情况"""
@@ -437,7 +452,7 @@ class TestNormalAccountTrade(unittest.TestCase):
         self.assertEqual(len(self.account.trading_records), 1)
         record = self.account.trading_records[0]
         self.assertEqual(record['code'], '600000')
-        self.assertEqual(record['type'], 'B')
+        self.assertEqual(record['tradeType'], 'B')
         self.assertEqual(record['sid'], 'ORDER001')
 
     @patch('pyphon.accounts.accld')
@@ -519,7 +534,7 @@ class TestCollateralAccountMethods(unittest.TestCase):
 
                 buy_deal = result['600000'][0]
                 self.assertEqual(buy_deal['code'], '600000')
-                self.assertEqual(buy_deal['type'], 'B')
+                self.assertEqual(buy_deal['tradeType'], 'B')
 
     @patch('pyphon.accounts.accld')
     def test_trade_success_buy(self, mock_accld):
@@ -548,11 +563,11 @@ class TestCollateralAccountMethods(unittest.TestCase):
         self.assertEqual(len(self.account.trading_records), 1)
         record = self.account.trading_records[0]
         self.assertEqual(record['code'], '600000')
-        self.assertEqual(record['type'], 'B')
+        self.assertEqual(record['tradeType'], 'B')
 
 
 if __name__ == '__main__':
     unittest.main()
     # suite = unittest.TestSuite()
-    # suite.addTest(TestNormalAccountGetHistoryDeals('test_get_history_deals_string_date'))
+    # suite.addTest(TestNormalAccountArchiveDeals('test_archive_deals_normal_case_bsequals'))
     # unittest.TextTestRunner().run(suite)

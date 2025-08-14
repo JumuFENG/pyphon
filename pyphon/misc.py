@@ -76,7 +76,7 @@ def get_rt_price(code):
         raise e
 
 def get_mkt_code(code):
-    assert len(code) == 6, "stock code length should be 6"
+    assert len(code) == 6, f"stock code length should be 6 not {code}"
     bj_head = ("4", "8", "92")
     sh_head = ("5", "6", "7", "9", "110", "113", "118", "132", "204")
     if code.startswith(bj_head):

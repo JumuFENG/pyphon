@@ -159,9 +159,9 @@ class TestAccountMethods(unittest.TestCase):
                 'code': '600000',
                 'name': '浦发银行',
                 'holdCount': 100,
-                'holdCost': '12.50',
+                'holdCost': 12.50,
                 'availableCount': 100,  # 应该等于holdCount，因为是下午4点后
-                'latestPrice': '13.20'
+                'latestPrice': 13.20
             }
 
             self.assertEqual(result, expected)
@@ -487,7 +487,7 @@ class TestAccountAddWatchStock(unittest.TestCase):
         self.assertEqual(len(self.account.stocks), 1)
         stock = self.account.stocks[0]
         self.assertEqual(stock['code'], '600000')
-        self.assertEqual(stock['holdCount'], 0)
+        self.assertEqual(stock['holdCount'], 100)
         self.assertEqual(stock['strategies'], strgrp)
 
     def test_add_watch_stock_existing_no_hold(self):
@@ -628,13 +628,13 @@ class TestAccountCheckOrders(unittest.TestCase):
                 self.assertEqual(buy_deal['code'], '600000')
                 self.assertEqual(buy_deal['price'], 12.50)
                 self.assertEqual(buy_deal['count'], 100)
-                self.assertEqual(buy_deal['type'], 'B')
+                self.assertEqual(buy_deal['tradeType'], 'B')
                 self.assertEqual(buy_deal['sid'], 'ORDER001')
 
                 # 验证卖出订单
                 sell_deal = result['000001'][0]
                 self.assertEqual(sell_deal['code'], '000001')
-                self.assertEqual(sell_deal['type'], 'S')
+                self.assertEqual(sell_deal['tradeType'], 'S')
 
                 # 验证调用了extend_stock_buydetail
                 self.assertEqual(mock_extend.call_count, 2)
@@ -749,7 +749,7 @@ class TestAccountCheckOrders(unittest.TestCase):
 
         # 添加一个交易记录
         self.account.trading_records = [
-            {'code': '600000', 'type': 'B', 'sid': 'ORDER001'}
+            {'code': '600000', 'tradeType': 'B', 'sid': 'ORDER001'}
         ]
 
         mock_orders_data = [
@@ -1352,7 +1352,7 @@ class TestAccountTrade(unittest.TestCase):
             self.assertEqual(len(self.account.trading_records), 1)
             record = self.account.trading_records[0]
             self.assertEqual(record['code'], '600000')
-            self.assertEqual(record['type'], 'B')
+            self.assertEqual(record['tradeType'], 'B')
             self.assertEqual(record['sid'], 'ORDER001')
 
     def test_trade_success_sell(self):
@@ -1373,7 +1373,7 @@ class TestAccountTrade(unittest.TestCase):
             # 验证交易记录添加
             self.assertEqual(len(self.account.trading_records), 1)
             record = self.account.trading_records[0]
-            self.assertEqual(record['type'], 'S')
+            self.assertEqual(record['tradeType'], 'S')
 
     def test_trade_api_error(self):
         """测试API返回错误"""
@@ -1437,7 +1437,7 @@ class TestTrackingAccountMethods(unittest.TestCase):
         self.assertEqual(len(self.account.trading_records), 1)
         record = self.account.trading_records[0]
         self.assertEqual(record['code'], '600000')
-        self.assertEqual(record['type'], 'B')
+        self.assertEqual(record['tradeType'], 'B')
         self.assertEqual(record['count'], 100)
 
     @patch('pyphon.accounts.datetime')
@@ -1504,7 +1504,7 @@ class TestTrackingAccountMethods(unittest.TestCase):
                 'count': 100,
                 'time': '2025-01-15 14:30:00',
                 'sid': 1000,
-                'type': 'B'
+                'tradeType': 'B'
             }
         ]
 
@@ -1517,8 +1517,8 @@ class TestTrackingAccountMethods(unittest.TestCase):
 
             deal = result['600000'][0]
             self.assertEqual(deal['code'], '600000')
-            self.assertEqual(deal['type'], 'B')
-            self.assertEqual(deal['date'], '2025-01-15 14:30:00')
+            self.assertEqual(deal['tradeType'], 'B')
+            self.assertEqual(deal['time'], '2025-01-15 14:30:00')
 
             # 验证调用了extend_stock_buydetail
             mock_extend.assert_called_once()
