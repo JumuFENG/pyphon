@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMTrader 交易系统</title>
+    <link rel="stylesheet" href="/static/css/style.css" onerror="console.error('CSS加载失败')">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部导航 -->
+        <header class="header">
+            <div class="header-left">
+                <h1><i class="fas fa-chart-line"></i> EMTrader</h1>
+                <div class="status-indicator" id="systemStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">连接中...</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-primary" id="startBtn">
+                    <i class="fas fa-play"></i> 启动系统
+                </button>
+                <button class="btn btn-secondary" id="refreshBtn">
+                    <i class="fas fa-sync-alt"></i> 刷新
+                </button>
+            </div>
+        </header>
+
+        <!-- 主要内容区域 -->
+        <main class="main-content">
+            <!-- 侧边栏 -->
+            <aside class="sidebar">
+                <nav class="nav-menu">
+                    <div class="nav-item active" data-tab="dashboard">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>概览</span>
+                    </div>
+                    <div class="nav-item" data-tab="trading">
+                        <i class="fas fa-exchange-alt"></i>
+                        <span>交易</span>
+                    </div>
+                    <div class="nav-item" data-tab="positions">
+                        <i class="fas fa-wallet"></i>
+                        <span>持仓</span>
+                    </div>
+                    <div class="nav-item" data-tab="orders">
+                        <i class="fas fa-list-alt"></i>
+                        <span>订单</span>
+                    </div>
+                    <div class="nav-item" data-tab="strategies">
+                        <i class="fas fa-cogs"></i>
+                        <span>策略</span>
+                    </div>
+                    <div class="nav-item" data-tab="config">
+                        <i class="fas fa-sliders-h"></i>
+                        <span>设置</span>
+                    </div>
+                </nav>
+            </aside>
+
+            <!-- 内容区域 -->
+            <div class="content-area">
+                <!-- 概览 -->
+                <div class="tab-content active" id="dashboard">
+                    <div class="dashboard-grid">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fas fa-coins"></i> 概览</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="asset-summary" id="assetSummary">
+                                    <div class="asset-item">
+                                        <span class="label">总资产:</span>
+                                        <span class="value" id="totalAssets">--</span>
+                                    </div>
+                                    <div class="asset-item">
+                                        <span class="label">可用资金:</span>
+                                        <span class="value" id="availableMoney">--</span>
+                                    </div>
+                                    <div class="asset-item">
+                                        <span class="label">持仓市值:</span>
+                                        <span class="value" id="positionValue">--</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fas fa-chart-pie"></i> 账户分布</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="account-list" id="accountList">
+                                    <!-- 账户信息将通过JS动态加载 -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card full-width">
+                            <div class="card-header">
+                                <h3><i class="fas fa-clock"></i> 今日交易</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="recent-trades" id="recentTrades">
+                                    <!-- 最近交易记录 -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 交易 -->
+                <div class="tab-content" id="trading">
+                    <div class="trading-panel">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fas fa-exchange-alt"></i> 股票交易</h3>
+                            </div>
+                            <div class="card-body">
+                                <form class="trading-form" id="tradingForm">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="stockCode">股票代码</label>
+                                            <input type="text" id="stockCode" name="code" placeholder="例: 000001" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="tradeType">交易类型</label>
+                                            <select id="tradeType" name="tradeType" required>
+                                                <option value="B">买入</option>
+                                                <option value="S">卖出</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="price">价格</label>
+                                            <input type="number" id="price" name="price" step="0.01" placeholder="0表示市价">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="count">数量</label>
+                                            <input type="number" id="count" name="count" step="100" placeholder="股数" required>
+                                        </div>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="account">账户类型</label>
+                                            <select id="account" name="account">
+                                                <option value="">自动选择</option>
+                                                <option value="normal">普通账户</option>
+                                                <option value="collat">担保品账户</option>
+                                                <option value="credit">信用账户</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>&nbsp;</label>
+                                            <button type="button" id="checkRzrqBtn" class="btn btn-info">
+                                                <i class="fas fa-search"></i> 检查融资融券
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="form-actions">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fas fa-paper-plane"></i> 提交交易
+                                        </button>
+                                        <button type="reset" class="btn btn-secondary">
+                                            <i class="fas fa-undo"></i> 重置
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 持仓 -->
+                <div class="tab-content" id="positions">
+                    <div class="positions-panel">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fas fa-wallet"></i> 持仓详情</h3>
+                                <div class="card-actions">
+                                    <select id="positionAccount" class="form-control">
+                                        <option value="normal">普通账户</option>
+                                        <option value="collat">担保品账户</option>
+                                        <option value="credit">信用账户</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-container">
+                                    <table class="data-table" id="positionsTable">
+                                        <thead>
+                                            <tr>
+                                                <th>股票代码</th>
+                                                <th>股票名称</th>
+                                                <th>持仓数量</th>
+                                                <th>可用数量</th>
+                                                <th>持仓成本</th>
+                                                <th>最新价格</th>
+                                                <th>盈亏</th>
+                                                <th>操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- 持仓数据将通过JS动态加载 -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 订单 -->
+                <div class="tab-content" id="orders">
+                    <div class="orders-panel">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fas fa-list-alt"></i> 今日订单</h3>
+                                <div class="card-actions">
+                                    <select id="orderAccount" class="form-control">
+                                        <option value="normal">普通账户</option>
+                                        <option value="collat">担保品账户</option>
+                                        <option value="credit">信用账户</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-container">
+                                    <table class="data-table" id="ordersTable">
+                                        <thead>
+                                            <tr>
+                                                <th>时间</th>
+                                                <th>股票代码</th>
+                                                <th>交易类型</th>
+                                                <th>价格</th>
+                                                <th>数量</th>
+                                                <th>订单号</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- 订单数据将通过JS动态加载 -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 策略 -->
+                <div class="tab-content" id="strategies">
+                    <div class="strategies-panel">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fas fa-cogs"></i> 投资策略</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="strategies-grid" id="strategiesGrid">
+                                    <!-- 策略信息将通过JS动态加载 -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 设置 -->
+                <div class="tab-content" id="config">
+                    <div class="config-panel">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fas fa-sliders-h"></i> 设置</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="config-form" id="configForm">
+                                    <!-- 配置表单将通过JS动态生成 -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 消息提示 -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- 加载中遮罩 -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>加载中...</span>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js" onerror="console.error('JS加载失败')"></script>
+    <script>
+        // 检查CSS是否加载
+        window.addEventListener('load', function() {
+            const testElement = document.createElement('div');
+            testElement.className = 'container';
+            document.body.appendChild(testElement);
+            const styles = window.getComputedStyle(testElement);
+            if (styles.display === 'flex') {
+                console.log('✓ CSS加载成功');
+            } else {
+                console.error('✗ CSS未正确加载');
+            }
+            document.body.removeChild(testElement);
+
+            // 检查JS是否加载
+            if (typeof EMTraderApp !== 'undefined') {
+                console.log('✓ JS加载成功');
+            } else {
+                console.error('✗ JS未正确加载');
+            }
+        });
+    </script>
+</body>
+</html>
