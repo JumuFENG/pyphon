@@ -574,8 +574,12 @@ class Account():
 
     def trade(self, code, price, count, bstype):
         if bstype == 'B' and self.available_money < 1000:
-            logger.error('money not enough, available: %s', self.available_money)
-            return
+            s = self.get_assets()
+            self.on_assets_loaded(s)
+            if self.available_money < 1000:
+                logger.error('money not enough, available: %s', self.available_money)
+                return
+
         if count < 1:
             logger.error(f'invalid count {count}')
             return

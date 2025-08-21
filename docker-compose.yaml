@@ -5,13 +5,13 @@ services:
     environment:
       - TZ=Asia/Shanghai
     volumes:
-      - /Users/chuazhou/dev/pyphon/logs:/home/pyuser/phon/logs
+      - /Users/chuazhou/dev/log-viewer/logs:/home/pyuser/phon/logs
       - /Users/chuazhou/dev/pyphon/config:/home/pyuser/phon/config
       - /Users/chuazhou/dev/pyphon/pyphon:/home/pyuser/phon/pyphon
       - /Users/chuazhou/dev/pyphon/web:/home/pyuser/phon/web
+      - /Users/chuazhou/dev/pyphon/phon.py:/home/pyuser/phon/phon.py
     ports:
       - "5888:5888"
-    entrypoint: ["/home/pyuser/venv/bin/python", "pyphon/emtrader.py"]
-    restart: always
+    restart: unless-stopped
 
 
