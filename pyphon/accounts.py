@@ -275,7 +275,7 @@ class Account():
                 if scount > 0:
                     logger.error('sell count not archived %s %s', c, buydetail)
                     continue
-                stk['buydetail'] = [b for b in buyrecs if b['count'] > 0]
+                stk['buydetail'] = sorted([b for b in buyrecs if b['count'] > 0], key=lambda x: x['date'])
                 stk['holdCount'] = sum([b['count'] for b in stk['buydetail']])
                 stk['availableCount'] = stk['holdCount']
 
@@ -283,6 +283,10 @@ class Account():
         # 查询当日订单，并将当日成交记录上传
         deals = self.check_orders()
         self.archive_deals(deals.keys())
+        for c in deals:
+            stk = self.get_stock(c)
+            logger.debug('%s %s', c, deals[c])
+            logger.debug(stk)
 
         updeals = []
         for c,d in deals.items():
@@ -595,7 +599,7 @@ class Account():
         final_count = count
         if count < 10:
             acount = self.fetch_available_count(code, price, bstype)
-            if count > 1:
+            if count > 0:
                 final_count = 100 * (acount // 100 / count)
             if final_count < 100:
                 logger.error('invalid count: %d, available count: %s, count: %s', final_count, acount, count)
@@ -1180,10 +1184,9 @@ class accld:
             pay_amount = total
             if total - zjkys > 0.15:
                 date_val = datetime.now().day
+                pay_amount = zjkys - 0.2
                 if date_val > 25 or date_val < 5:
-                    pay_amount = zjkys - assets_data['Rzxf'] - assets_data['Rqxf'] - assets_data['Rzxf']
-                else:
-                    pay_amount = assets_data['Zjkys'] - 0.2
+                    pay_amount -= assets_data['Rzxf'] + assets_data['Rqxf'] + assets_data['Rzxf']
 
             pay_amount = round(pay_amount, 2)
             if pay_amount <= 0:

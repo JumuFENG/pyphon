@@ -324,6 +324,16 @@ async def rzrq(code: str = Query(..., description="股票代码，必填")):
         logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+@app.get('/istradingdate')
+async def istradingdate():
+    """获取当天是否是交易日"""
+    try:
+        return {"isTradeDay": is_today_trading_day()}
+    except Exception as e:
+        logger.error(f"Error in /istradingdate endpoint: {str(e)}")
+        logger.debug(format_exc())
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 @app.get("/config")
 async def get_config():
     """获取系统配置"""
