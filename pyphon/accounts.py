@@ -917,7 +917,8 @@ class accld:
             if acc['realcash']:
                 logger.info('skip realcash acc in track account')
                 continue
-            self.track_accounts.append(TrackingAccount(acc['name']))
+            name = acc['name'] if 'name' in acc else acc['username'].split('.')[1]
+            self.track_accounts.append(TrackingAccount(name))
         for account in self.track_accounts:
             self.all_accounts[account.keyword] = account
             account.load_watchings()

@@ -61,9 +61,10 @@ class jywg:
             data = {'img': base64.b64encode(rsp.content).decode('utf-8')}
             r = requests.post(url, data=data)
             r.raise_for_status()
-            vcode = r.text.strip()
+            vcode = r.text.replace('"', '').strip()
 
         if len(vcode) != 4:
+            logger.warning('验证码不合法 %s, %d', vcode, len(vcode))
             return self.get_refreshed_vcode()
 
         replace_map = {
