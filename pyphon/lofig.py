@@ -99,14 +99,24 @@ class Config:
         lvl = self.all_configs()['client'].get("log_level", "INFO").upper()
         return logging._nameToLevel[lvl]
 
+    @classmethod
+    def log_handler(self):
+        handlers = self.all_configs().get('log_handler', ['file', 'stdout'])
+        lhandlers = []
+        if 'file' in handlers:
+            lg_path = os.path.join(os.path.dirname(__file__), '../logs/iun.log')
+            if not os.path.isdir(os.path.dirname(lg_path)):
+                os.mkdir(os.path.dirname(lg_path))
+            lhandlers.append(logging.FileHandler(lg_path))
+        if any(x in handlers for x in ['stdout', 'console']):
+            lhandlers.append(logging.StreamHandler(sys.stdout))
+        return lhandlers
 
-lg_path = os.path.join(os.path.dirname(__file__), '../logs/emtrader.log')
-if not os.path.isdir(os.path.dirname(lg_path)):
-    os.mkdir(os.path.dirname(lg_path))
+
 logging.basicConfig(
     level=Config.log_level(),
     format='%(levelname)s | %(asctime)s-%(filename)s@%(lineno)d<%(name)s> %(message)s',
-    handlers=[logging.FileHandler(lg_path), logging.StreamHandler(sys.stdout)],
+    handlers=Config.log_handler(),
     force=True
 )
 

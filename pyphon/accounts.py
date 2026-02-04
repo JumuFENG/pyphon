@@ -303,8 +303,8 @@ class Account():
 
         deals = [{
             **{k:v for k,v in d.items() if k != 'code'},
-            'code': get_mkt_code(d['code']) + d['code']
-        }  for d in deals]
+            'code': get_mkt_code(d['code']) + d['code'] if d['code'] else ''
+        } for d in deals]
 
         url = join_url(accld.fha['server'], 'stock')
         data = {
@@ -427,6 +427,7 @@ class Account():
         otherSellSm = ['股份转出']
         otherSm = ['配售缴款', '新股入帐', '股息红利差异扣税', '偿还融资利息', '偿还融资逾期利息', '红利入账', '银行转证券', '证券转银行', '利息归本']
         fsjeSm = ['股息红利差异扣税', '偿还融资利息', '偿还融资逾期利息', '红利入账', '银行转证券', '证券转银行', '利息归本']
+        deals_no_code = []
         for deali in hdeals:
             sm = deali.get('Ywsm', '')
             if sm in ignoredSm:
@@ -449,9 +450,6 @@ class Account():
                 continue
 
             code = deali.get('Zqdm', '')
-            if not code:
-                continue
-
             rq = deali['Fsrq'] if 'Fsrq' in deali and deali['Fsrq'] != '0' else deali['Ywrq']
             sj = deali['Fssj'] if 'Fssj' in deali and deali['Fssj'] != '0' else deali['Cjsj']
             dltime = self.get_deal_time(rq, sj)
@@ -472,6 +470,13 @@ class Account():
                     'time': dltime, 'sid': sid, 'code': code, 'tradeType': tradeType, 'price': price, 'count': count,
                     'fee': float(deali.get('Sxf', 0)), 'feeYh': float(deali.get('Yhs', 0)), 'feeGh': float(deali.get('Ghf', 0))
                 }
+
+            if not code:
+                if count == 0:
+                    drec['count'] = 1
+                deals_no_code.append(drec)
+                continue
+
             if tradeType == '融资利息':
                 dealsTobeCum.append(drec)
             else:
@@ -482,6 +487,9 @@ class Account():
             fetchedDeals.extend(ndeals)
 
         self._upload_deals(fetchedDeals)
+        if len(deals_no_code) > 0:
+            logger.info('deals no code: %s', deals_no_code)
+            self._upload_deals(deals_no_code)
 
     def buy_fund_before_close(self):
         pass
@@ -926,9 +934,11 @@ class accld:
     @classmethod
     def upload_every_monday(self):
         """每周一上传历史成交记录"""
-        if datetime.now().weekday() != 0:
-            return
+        now = datetime.now()
+        # if now.weekday() != 0:
+        #     return
 
+        today = now.strftime('%Y-%m-%d')
         url = join_url(self.fha['server'], 'api/tradingdates?len=30')
         try:
             r = requests.get(url)
@@ -936,13 +946,18 @@ class accld:
             dates = r.json()
             if not dates or len(dates) == 0:
                 raise ValueError('no trading dates found')
-            for date in reversed(dates):
-                pdate = datetime.strptime(date, '%Y-%m-%d')
+            date = dates[0]
+            for d in reversed(dates):
+                if d == today:
+                    continue
+                pdate = datetime.strptime(d, '%Y-%m-%d')
                 if pdate.weekday() == 0:
+                    date = d
                     break
         except Exception as e:
             date = (datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d')
         finally:
+            logger.info('upload history deals and other deals since %s', date)
             self.load_his_deals(date)
             self.load_other_deals(date)
 

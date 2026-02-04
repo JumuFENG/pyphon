@@ -268,13 +268,18 @@ class TradeRequest(BaseModel):
 
 @app.post("/trade")
 async def trade(request: TradeRequest):
+    if hasattr(request, 'model_dump'):
+        request_dict = request.model_dump()
+    else:
+        request_dict = request.dict()
+
     try:
-        if ext.handleTrade(request.model_dump()):
+        if ext.handleTrade(request_dict):
             return {"status": "success", "message": "Trade executed successfully"}
         else:
             raise HTTPException(status_code=400, detail="Trade execution failed")
     except Exception as e:
-        logger.error("Trade error: %s %s", e, request.model_dump())
+        logger.error("Trade error: %s %s", e, request_dict)
         logger.debug(format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
