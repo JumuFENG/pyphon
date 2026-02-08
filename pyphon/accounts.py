@@ -935,8 +935,8 @@ class accld:
     def upload_every_monday(self):
         """每周一上传历史成交记录"""
         now = datetime.now()
-        # if now.weekday() != 0:
-        #     return
+        if now.weekday() != 0:
+            return
 
         today = now.strftime('%Y-%m-%d')
         url = join_url(self.fha['server'], 'api/tradingdates?len=30')

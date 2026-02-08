@@ -104,7 +104,7 @@ class Config:
         handlers = self.all_configs().get('log_handler', ['file', 'stdout'])
         lhandlers = []
         if 'file' in handlers:
-            lg_path = os.path.join(os.path.dirname(__file__), '../logs/iun.log')
+            lg_path = os.path.join(os.path.dirname(__file__), '../logs/emtrader.log')
             if not os.path.isdir(os.path.dirname(lg_path)):
                 os.mkdir(os.path.dirname(lg_path))
             lhandlers.append(logging.FileHandler(lg_path))
