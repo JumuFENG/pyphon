@@ -154,7 +154,8 @@ class Account():
             logger.error('查询订单失败: %s', str(e))
             logger.debug(format_exc())
         finally:
-            return orders
+            pass
+        return orders
 
     def get_orders(self):
         # 查询当日订单
