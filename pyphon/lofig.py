@@ -101,7 +101,7 @@ class Config:
 
     @classmethod
     def log_handler(self):
-        handlers = self.all_configs().get('log_handler', ['file', 'stdout'])
+        handlers = self.all_configs()['client'].get('log_handler', ['file', 'stdout'])
         lhandlers = []
         if 'file' in handlers:
             lg_path = os.path.join(os.path.dirname(__file__), '../logs/emtrader.log')
