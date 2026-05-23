@@ -1,9 +1,10 @@
+import os
 import json
 import requests
 from traceback import format_exc
 from datetime import datetime, timedelta
 from misc import get_rt_price, join_url, get_mkt_code, calc_buy_count, delay_seconds
-from lofig import logger
+from lofig import logger, Config
 
 
 class Account():
@@ -620,7 +621,7 @@ class Account():
             r.raise_for_status()
             robj = r.json()
             if robj['Status'] != 0 or len(robj['Data']) == 0:
-                logger.error('submit trade error: %s, %s, %s', code, bstype, robj)
+                logger.error('submit trade error: %s, %s, %s, %s, %s, %s', self.keyword, code, bstype, price, final_count, robj)
                 return
             if bstype == 'B':
                 self.available_money -= price * final_count
@@ -976,16 +977,52 @@ class accld:
 
     @classmethod
     def check_rzrq(self, code):
-        if not self.credit_account:
-            return False
+        # https://jywg.18.cn/MarginSearch/MarginSubject
+        def rzrq_cache_file():
+            return os.path.join(os.path.dirname(Config._cfg_path()), f'known_rzrq.json')
 
-        snap = get_rt_price(code)
-        data = self.credit_account.get_count_form_data(code, snap['price'], 'B')
+        def cache_rzrq(stk, rdata):
+            cache = {}
+            if os.path.isfile(rzrq_cache_file()):
+                with open(rzrq_cache_file(), 'r') as f:
+                    cache = json.load(f)
+            rdata['updateDate'] = datetime.now().strftime('%Y-%m-%d')
+            cache[stk[-6:]] = rdata
+            with open(rzrq_cache_file(), 'w') as f:
+                json.dump(cache, f, indent=4)
+
+        def get_cache_rzrq(stk):
+            if not os.path.isfile(rzrq_cache_file()):
+                return {'rz': False, 'rq': False, 'updateDate': '1970-01-01'}
+            with open(rzrq_cache_file(), 'r') as f:
+                cache = json.load(f)
+                return cache.get(stk[-6:], {'rz': False, 'rq': False, 'updateDate': '1970-01-01'})
+
+        data = {
+            'qqhs': '20',
+            'dwc': '',
+            'stkcode': code[-6:]
+        }
+        jywg = self.jywg
+        cached_rdata = get_cache_rzrq(code)
+        if not jywg or not jywg.validate_key:
+            logger.info('no valid validateKey: %s', jywg.validate_key if jywg else None)
+            return cached_rdata['rz']
+        if cached_rdata['updateDate'] == datetime.now().strftime('%Y-%m-%d'):
+            return cached_rdata['rz']
+
+        url = join_url(jywg.jywg, f'/MarginSearch/queryRzRqStkList?validatekey={jywg.validate_key}')
         try:
-            r = self.jywg.session.post(self.credit_account.count_url, data=data)
+            r = self.jywg.session.post(url, data=data)
             r.raise_for_status()
             robj = r.json()
-            return robj['Status'] != -1
+            if robj['Status'] != 0 or robj['Count'] == 0:
+                logger.info('check_rzrq: %s, %s, %s', code, robj['Status'], robj['Count'])
+                return False
+            rdata = next(d for d in robj['Data'] if d['zqdm'] == code[-6:])
+            rzrqyx = {'rz': rdata.get('rzyx', '1') == '0', 'rq': rdata.get('rqyx', '1') == '0'}
+            cache_rzrq(code, rzrqyx)
+            return rzrqyx['rz']
         except Exception as e:
             logger.error('check rzrq error: %s', e)
             logger.debug(format_exc())
@@ -1260,6 +1297,13 @@ class accld:
         if count == 0:
             logger.error('count is 0, check available money: %s %s', account, available_money)
 
+        if account == 'credit' and self.collateral_account:
+            s = self.collateral_account.get_assets()
+            self.collateral_account.on_assets_loaded(s)
+            if self.collateral_account.available_money > count * price:
+                logger.info('collat available money enough, use collat instead of credit: %s, %s, %s', count, price, self.all_accounts['collat'].available_money)
+                account = 'collat'
+
         self.all_accounts[account].trade(code, price, count, 'B')
 
     @classmethod
@@ -1281,6 +1325,11 @@ class accld:
         code = order.get('Zqdm', order.get('Wtjg', '').replace('.', ''))
         date = datetime.now().strftime('%Y-%m-%d')
         price = float(order.get('Cjjg', 0))
+        if price == 0 and datetime.now().hour >= 15:
+            try:
+                price = get_rt_price(code[-6:])['price']
+            except Exception as e:
+                logger.warning('get_rt_price error: %s', e)
         count = int(order.get('Cjsl', 0))
         sid = order.get('Wtbh', '')
         sdetail = { 'code': code, 'price': price, 'count': count, 'sid': sid, 'type': 'S', 'date': date }
