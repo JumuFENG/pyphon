@@ -105,6 +105,10 @@ class TradingExtension:
         # costDog.init()
         alarm_hub.purchase_new_stocks = tconfig['purchase_new_stocks']
         alarm_hub.on_trade_closed = self.on_trade_closed
+        if not is_today_trading_day():
+            logger.info("今天不是交易日，不设置定时任务")
+            return
+
         alarm_hub.setup_alarms()
 
     def on_trade_closed(self):

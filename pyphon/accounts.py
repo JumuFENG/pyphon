@@ -3,7 +3,7 @@ import json
 import requests
 from traceback import format_exc
 from datetime import datetime, timedelta
-from misc import get_rt_price, join_url, get_mkt_code, calc_buy_count, delay_seconds
+from misc import get_rt_price, join_url, get_mkt_code, calc_buy_count, delay_seconds, is_today_trading_day
 from lofig import logger, Config
 
 
@@ -1008,7 +1008,7 @@ class accld:
         if not jywg or not jywg.validate_key:
             logger.info('no valid validateKey: %s', jywg.validate_key if jywg else None)
             return cached_rdata['rz']
-        if cached_rdata['updateDate'] == datetime.now().strftime('%Y-%m-%d'):
+        if cached_rdata['updateDate'] == datetime.now().strftime('%Y-%m-%d') or (cached_rdata['updateDate'] > '1970-01-01' and not is_today_trading_day()):
             return cached_rdata['rz']
 
         url = join_url(jywg.jywg, f'/MarginSearch/queryRzRqStkList?validatekey={jywg.validate_key}')
